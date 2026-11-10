@@ -3,3 +3,4 @@
 /sobel/sobel-host
 /sobel/sobel
 /sobel/out.png
+/sobel/*.o
