@@ -86,6 +86,20 @@ static void test_border_pixels_are_zero(void)
     }
 }
 
+static void test_band_writes_only_its_rows(void)
+{
+    enum { W = 5, H = 6 };
+    uint8_t in[W * H], out[W * H];
+    memset(in, 120, sizeof in);
+    memset(out, 0xAA, sizeof out);
+
+    sobel_rows(in, out, W, H, 2, 4);
+
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            assert(out[y * W + x] == ((y >= 2 && y < 4) ? 0 : 0xAA));
+}
+
 int main(void)
 {
     test_uniform_image_gives_zero();
@@ -93,6 +107,7 @@ int main(void)
     test_horizontal_edge_lights_edge_rows();
     test_magnitude_saturates_at_255();
     test_border_pixels_are_zero();
+    test_band_writes_only_its_rows();
     printf("all tests passed\n");
     return 0;
 }
