@@ -12,7 +12,8 @@ void sobel_rows(const uint8_t *in, uint8_t *out, int w, int h, int y0, int y1)
             }
             const uint8_t *p = &in[(y - 1) * w + (x - 1)];
             int gx = -p[0] + p[2] - 2 * p[w] + 2 * p[w + 2] - p[2 * w] + p[2 * w + 2];
-            out[y * w + x] = abs(gx);
+            int gy = -p[0] - 2 * p[1] - p[2] + p[2 * w] + 2 * p[2 * w + 1] + p[2 * w + 2];
+            out[y * w + x] = abs(gx) + abs(gy);
         }
     }
 }

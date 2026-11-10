@@ -34,10 +34,29 @@ static void test_vertical_edge_lights_edge_columns(void)
     }
 }
 
+static void test_horizontal_edge_lights_edge_rows(void)
+{
+    enum { W = 5, H = 6 };
+    uint8_t in[W * H], out[W * H];
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            in[y * W + x] = y < 3 ? 10 : 50;
+
+    sobel_rows(in, out, W, H, 0, H);
+
+    for (int x = 1; x < W - 1; x++) {
+        assert(out[1 * W + x] == 0);
+        assert(out[2 * W + x] == 160);
+        assert(out[3 * W + x] == 160);
+        assert(out[4 * W + x] == 0);
+    }
+}
+
 int main(void)
 {
     test_uniform_image_gives_zero();
     test_vertical_edge_lights_edge_columns();
+    test_horizontal_edge_lights_edge_rows();
     printf("all tests passed\n");
     return 0;
 }
