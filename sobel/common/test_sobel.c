@@ -52,11 +52,26 @@ static void test_horizontal_edge_lights_edge_rows(void)
     }
 }
 
+static void test_magnitude_saturates_at_255(void)
+{
+    enum { W = 4, H = 3 };
+    uint8_t in[W * H], out[W * H];
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            in[y * W + x] = x < 2 ? 0 : 255;
+
+    sobel_rows(in, out, W, H, 0, H);
+
+    assert(out[1 * W + 1] == 255);
+    assert(out[1 * W + 2] == 255);
+}
+
 int main(void)
 {
     test_uniform_image_gives_zero();
     test_vertical_edge_lights_edge_columns();
     test_horizontal_edge_lights_edge_rows();
+    test_magnitude_saturates_at_255();
     printf("all tests passed\n");
     return 0;
 }
