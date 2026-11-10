@@ -1,9 +1,20 @@
+#define _XOPEN_SOURCE 700
+
 #include <stb_image.h>
 #include <stb_image_write.h>
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/resource.h>
+#include <time.h>
 #include "sobel.h"
+
+static double now_ms(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec * 1e3 + t.tv_nsec / 1e6;
+}
 
 /* Duo's onboard LED, as used by /mnt/system/blink.sh */
 #define LED_PIN "440"
@@ -28,6 +39,7 @@ static void led(const char *value)
 
 static int run(const char *in_path, const char *out_path)
 {
+    double t0 = now_ms();
     int w, h, n;
     uint8_t *in = stbi_load(in_path, &w, &h, &n, 1);
     if (!in) {
@@ -41,14 +53,25 @@ static int run(const char *in_path, const char *out_path)
         return 1;
     }
 
+    double t1 = now_ms();
     sobel_rows(in, out, w, h, 0, h);
+    double t2 = now_ms();
 
     if (!stbi_write_png(out_path, w, h, 1, out, w)) {
         fprintf(stderr, "%s: write failed\n", out_path);
         return 1;
     }
+    double t3 = now_ms();
+
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
 
     printf("%dx%d -> %s\n", w, h, out_path);
+    printf("load   %8.1f ms\n", t1 - t0);
+    printf("sobel  %8.1f ms\n", t2 - t1);
+    printf("write  %8.1f ms\n", t3 - t2);
+    printf("total  %8.1f ms\n", t3 - t0);
+    printf("maxrss %8ld KB\n", ru.ru_maxrss);
     stbi_image_free(in);
     free(out);
     return 0;
