@@ -66,12 +66,33 @@ static void test_magnitude_saturates_at_255(void)
     assert(out[1 * W + 2] == 255);
 }
 
+static void test_border_pixels_are_zero(void)
+{
+    enum { W = 5, H = 4 };
+    uint8_t in[W * H], out[W * H];
+    for (int i = 0; i < W * H; i++)
+        in[i] = (i % 2) ? 200 : 0;
+    memset(out, 0xAA, sizeof out);
+
+    sobel_rows(in, out, W, H, 0, H);
+
+    for (int x = 0; x < W; x++) {
+        assert(out[x] == 0);
+        assert(out[(H - 1) * W + x] == 0);
+    }
+    for (int y = 0; y < H; y++) {
+        assert(out[y * W] == 0);
+        assert(out[y * W + W - 1] == 0);
+    }
+}
+
 int main(void)
 {
     test_uniform_image_gives_zero();
     test_vertical_edge_lights_edge_columns();
     test_horizontal_edge_lights_edge_rows();
     test_magnitude_saturates_at_255();
+    test_border_pixels_are_zero();
     printf("all tests passed\n");
     return 0;
 }
