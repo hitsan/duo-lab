@@ -2,7 +2,9 @@ WARN := -Wall -Wextra -Werror
 HOST_CFLAGS := -std=c11 -Og -g $(WARN)
 INC := -isystem third_party
 
-all: sobel-host sobel
+host: sobel-host
+
+duo: sobel
 
 test: test_sobel
 	./test_sobel
@@ -24,4 +26,4 @@ run: sobel-host
 clean:
 	rm -f test_sobel sobel-host sobel out.png
 
-.PHONY: all test run clean
+.PHONY: host duo test run clean
