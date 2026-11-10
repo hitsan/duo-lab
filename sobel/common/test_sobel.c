@@ -4,6 +4,6 @@
 
 int main(void)
 {
-    puts("all tests passed");
+    printf("all tests passed\n");
     return 0;
 }
