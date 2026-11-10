@@ -1,5 +1,5 @@
 /images/
-/sobel/common/test_sobel
-/sobel/linux/sobel
-/sobel/linux/sobel-host
-/sobel/linux/out.png
+/sobel/test_sobel
+/sobel/sobel-host
+/sobel/sobel
+/sobel/out.png
