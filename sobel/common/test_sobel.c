@@ -100,6 +100,23 @@ static void test_band_writes_only_its_rows(void)
             assert(out[y * W + x] == ((y >= 2 && y < 4) ? 0 : 0xAA));
 }
 
+static void test_banded_result_equals_whole_image(void)
+{
+    enum { W = 13, H = 11, BAND = 4 };
+    uint8_t in[W * H], whole[W * H], banded[W * H];
+    uint32_t s = 12345;
+    for (int i = 0; i < W * H; i++) {
+        s = s * 1103515245u + 12345u;
+        in[i] = s >> 24;
+    }
+
+    sobel_rows(in, whole, W, H, 0, H);
+    for (int y0 = 0; y0 < H; y0 += BAND)
+        sobel_rows(in, banded, W, H, y0, y0 + BAND < H ? y0 + BAND : H);
+
+    assert(memcmp(whole, banded, sizeof whole) == 0);
+}
+
 int main(void)
 {
     test_uniform_image_gives_zero();
@@ -108,6 +125,7 @@ int main(void)
     test_magnitude_saturates_at_255();
     test_border_pixels_are_zero();
     test_band_writes_only_its_rows();
+    test_banded_result_equals_whole_image();
     printf("all tests passed\n");
     return 0;
 }
