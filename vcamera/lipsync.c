@@ -10,7 +10,7 @@
 
 float SmoothVoiceLevel(float level, float sample)
 {
-    float rate = sample > level ? RISE_RATE : FALL_RATE;
+    const float rate = sample > level ? RISE_RATE : FALL_RATE;
     return level + rate * (sample - level);
 }
 
@@ -24,8 +24,8 @@ uint8_t CalcMouthOpenness(float level, float closed_db, float full_open_db)
     if (level <= 0.0f) {
         return 0;
     }
-    float level_db = 20.0f * log10f(level);
-    float ratio = (level_db - closed_db) / (full_open_db - closed_db);
+    const float level_db = 20.0f * log10f(level);
+    const float ratio = (level_db - closed_db) / (full_open_db - closed_db);
     if (ratio <= 0.0f) {
         return 0;
     }

@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include "display.h"
 #include "lipsync.h"
@@ -7,37 +8,64 @@
 #define MOUTH_SHAPES 5
 #define BAR_CELLS 20
 
-/* Mouth height grows with the shape. Fixed line count keeps the screen from shifting */
-void ShowMouth(uint8_t openness)
+/* MIC_SAMPLE_RATE / FPS is not an integer; carry the remainder so frames don't drift */
+static bool isFrameDue(void)
 {
-    /* MIC_SAMPLE_RATE / FPS is not an integer; carry the remainder so frames don't drift */
     static int frame_timer;
     frame_timer += FPS;
     if (frame_timer < MIC_SAMPLE_RATE) {
-        return;
+        return false;
     }
     frame_timer -= MIC_SAMPLE_RATE;
+    return true;
+}
 
+/* Always print the same number of lines so the screen doesn't shift */
+static void drawMouth(int shape)
+{
+    if (shape == 0) {
+        printf("     ═════════     \n");
+        int row = 0;
+        while (row < MOUTH_SHAPES) {
+            printf("                   \n");
+            row++;
+        }
+        return;
+    }
+    printf("     ╭───────╮     \n");
+    int row = 0;
+    while (row < MOUTH_SHAPES - 1) {
+        printf(row < shape ? "     │███████│     \n" : "                   \n");
+        row++;
+    }
+    printf("     ╰───────╯     \n");
+}
+
+static void drawStatus(long frame_count, uint8_t openness)
+{
+    printf("\n %5.2fs  openness %3d ", (double)frame_count / FPS, openness);
+    const int filled_cells = openness * BAR_CELLS / 256;
+    int cell = 0;
+    while (cell < BAR_CELLS) {
+        fputs(cell < filled_cells ? "█" : "░", stdout);
+        cell++;
+    }
+    printf("\n");
+}
+
+void ShowMouth(uint8_t openness)
+{
+    if (!isFrameDue()) {
+        return;
+    }
     static long frame_count;
     if (frame_count == 0) {
         printf("\033[2J");
     }
-    int shape = SelectMouthShape(openness, MOUTH_SHAPES);
     printf("\033[H");
     printf("\n     ●       ●     \n\n");
-    if (shape == 0) {
-        printf("     ═════════     \n");
-        for (int row = 0; row < MOUTH_SHAPES; row++)
-            printf("                   \n");
-    } else {
-        printf("     ╭───────╮     \n");
-        for (int row = 0; row < MOUTH_SHAPES - 1; row++)
-            printf(row < shape ? "     │███████│     \n" : "                   \n");
-        printf("     ╰───────╯     \n");
-    }
-    printf("\n %5.2fs  openness %3d ", (double)frame_count++ / FPS, openness);
-    for (int cell = 0; cell < BAR_CELLS; cell++)
-        fputs(cell < openness * BAR_CELLS / 256 ? "█" : "░", stdout);
-    printf("\n");
+    drawMouth(SelectMouthShape(openness, MOUTH_SHAPES));
+    drawStatus(frame_count, openness);
     fflush(stdout);
+    frame_count++;
 }
