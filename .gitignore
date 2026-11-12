@@ -4,3 +4,7 @@
 /sobel/sobel
 /sobel/out.png
 /sobel/*.o
+/vcamera/test_vcamera
+/vcamera/vcamera-host
+/vcamera/vcamera
+/vcamera/*.wav
