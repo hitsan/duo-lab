@@ -24,21 +24,32 @@ Linux 側の `vcamera-reader` がそれを 30fps で読んでターミナルに�
 | `rtos/embedded_wav.S` | `.incbin` で WAV を埋め込む |
 | `rtos/display_shared.c` | `display.h` の実装。共有メモリに書いて `clean_dcache_range` する |
 | `rtos/vcamera_task.c` | `main.c` と同じループを回す FreeRTOS タスク |
-| `rtos/sdk.patch` | duo-buildroot-sdk の FreeRTOS に上をビルドに入れ、タスクを作る。イメージが共有ページに重なればリンクで落とす |
+| `sdk/rtos.patch` | duo-buildroot-sdk の FreeRTOS に上をビルドに入れ、タスクを作る。イメージが共有ページに重なればリンクで落とす |
 | `reader.c` | Linux 側。`/dev/mem` を mmap して 30fps で `ShowMouth` を呼ぶ |
 
 WAV は 16bit PCM。ファームの空きは約 70KB なので、8kHz mono で 4 秒程度まで。
 
 ```sh
-# duo-buildroot-sdk で
-patch -p1 < /PATH/TO/duo-lab/vcamera/rtos/sdk.patch
-export VCAMERA_DIR=/PATH/TO/duo-lab/vcamera
-export VCAMERA_WAV=$(realpath voice.wav)     # 絶対パス
-rm -rf freertos/cvitek/build                 # WAV の中身だけ変えたときは再ビルドされないので消す
-./build.sh milkv-duo-sd                      # fip.bin に FreeRTOS が入る。SD に書く
+./build.sh image voice.wav                   # SD イメージを作る。duo-buildroot-sdk/out/ にできる
 
-# duo-lab/vcamera で
 make reader                                  # source duo-examples/envsetup.sh 済みで
 scp vcamera-reader root@192.168.42.1:
 ssh -t root@192.168.42.1 ./vcamera-reader
+```
+
+## SDK のビルド
+
+SDK はリポジトリ直下の `duo-buildroot-sdk/` (submodule) を使う。SDK への変更は `sdk/` に置き、`build.sh` が当てる。何度実行しても同じ結果になる。
+
+| ファイル | 役割 |
+|---|---|
+| `sdk/linux.config` | カーネルの defconfig に足す行。UVC ガジェットを有効にする |
+| `sdk/rtos.patch` | FreeRTOS への変更 (上の表) |
+| `build.sh` | submodule と host-tools を取得し、`sdk/` を当ててビルドする |
+
+ホストに bison, flex, openssl, pkg-config, bc, dtc が要る。nix なら `nix-shell -p bison flex openssl pkg-config bc dtc --run './build.sh kernel'`。
+
+```sh
+./build.sh kernel                            # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
+./build.sh image voice.wav                   # SD イメージ全体
 ```
