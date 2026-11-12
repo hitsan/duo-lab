@@ -8,6 +8,9 @@ SDK_DIR=$REPOSITORY_DIR/duo-buildroot-sdk
 BOARD=milkv-duo-sd
 LINUX_DEFCONFIG=$SDK_DIR/build/boards/cv180x/cv1800b_milkv_duo_sd/linux/cvitek_cv1800b_milkv_duo_sd_defconfig
 
+# duo-examples/envsetup.sh (loaded by .envrc) exports these for userland builds; the SDK uses CHIP itself
+unset CC CFLAGS LDFLAGS CHIP TOOLCHAIN_PREFIX
+
 fail()
 {
     echo "build.sh: $*" >&2

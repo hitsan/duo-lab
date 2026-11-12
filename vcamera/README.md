@@ -47,7 +47,7 @@ SDK はリポジトリ直下の `duo-buildroot-sdk/` (submodule) を使う。SDK
 | `sdk/rtos.patch` | FreeRTOS への変更 (上の表) |
 | `build.sh` | submodule と host-tools を取得し、`sdk/` を当ててビルドする |
 
-ホストに bison, flex, openssl, pkg-config, bc, dtc が要る。nix なら `nix-shell -p bison flex openssl pkg-config bc dtc --run './build.sh kernel'`。
+ビルドに要るホストのツールは dev-shell の `milkv-duo-sdk` にそろっていて、`.envrc` (direnv) が読み込む。
 
 ```sh
 ./build.sh kernel                            # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
