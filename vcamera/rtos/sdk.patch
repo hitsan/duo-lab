@@ -1,0 +1,55 @@
+--- a/freertos/cvitek/scripts/cv180x_lscript.ld
++++ b/freertos/cvitek/scripts/cv180x_lscript.ld
+@@ -200,5 +200,7 @@
+ } > psu_ddr_0_MEM_0
+ 
+ _end = .;
++/* vcamera: the last page holds the openness shared with Linux */
++ASSERT(_end <= 0x83FFF000, "image overlaps the vcamera shared page at 0x83FFF000; embed a shorter WAV")
+ }
+ 
+--- a/freertos/cvitek/task/comm/CMakeLists.txt
++++ b/freertos/cvitek/task/comm/CMakeLists.txt
+@@ -1,6 +1,22 @@
+ file(GLOB _SOURCES "src/${RUN_ARCH}/*.c")
+ 
+ include_directories(include)
++
++# vcamera: VCAMERA_DIR is duo-lab/vcamera, VCAMERA_WAV the absolute path of the WAV to embed
++if (NOT DEFINED ENV{VCAMERA_DIR} OR NOT DEFINED ENV{VCAMERA_WAV})
++	message(FATAL_ERROR "export VCAMERA_DIR and VCAMERA_WAV")
++endif()
++set(VCAMERA_DIR $ENV{VCAMERA_DIR})
++list(APPEND _SOURCES
++	${VCAMERA_DIR}/lipsync.c
++	${VCAMERA_DIR}/wav.c
++	${VCAMERA_DIR}/rtos/display_shared.c
++	${VCAMERA_DIR}/rtos/mic_embedded_wav.c
++	${VCAMERA_DIR}/rtos/vcamera_task.c
++	${VCAMERA_DIR}/rtos/embedded_wav.S)
++set_source_files_properties(${VCAMERA_DIR}/rtos/embedded_wav.S PROPERTIES COMPILE_DEFINITIONS "VCAMERA_WAV=\"$ENV{VCAMERA_WAV}\"")
++include_directories(${VCAMERA_DIR})
++
+ if (BOARD MATCHES "milkv-duos")
+ 	list(APPEND _SOURCES "led_control/milkv_duos_io.c")
+ elseif (BOARD MATCHES "milkv-duo256m")
+--- a/freertos/cvitek/task/comm/src/riscv64/comm_main.c
++++ b/freertos/cvitek/task/comm/src/riscv64/comm_main.c
+@@ -42,6 +42,7 @@
+  ****************************************************************************/
+ void prvQueueISR(void);
+ void prvCmdQuRunTask(void *pvParameters);
++void RunVcameraTask(void *parameters);
+ 
+ 
+ /****************************************************************************
+@@ -84,6 +85,9 @@
+ 	for (; i < ARRAY_SIZE(gTaskCtx); i++) {
+ 		TASK_INIT(i);
+ 	}
++
++	/* Below CMDQU so mailbox commands are never delayed */
++	xTaskCreate(RunVcameraTask, "VCAMERA", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
+ }
+ 
+ void main_cvirtos(void)

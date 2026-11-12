@@ -6,6 +6,8 @@ host: vcamera-host
 
 duo: vcamera
 
+reader: vcamera-reader
+
 test: test_vcamera
 	./test_vcamera
 
@@ -19,11 +21,15 @@ vcamera: main.c display.h display_terminal.c lipsync.c lipsync.h mic.h mic_wav.c
 	$(check-duo)
 	$(CC) $(CFLAGS) $(WARN) -o $@ main.c display_terminal.c lipsync.c mic_wav.c wav.c $(LDFLAGS) -lm
 
+vcamera-reader: reader.c display.h display_terminal.c lipsync.c lipsync.h shared_openness.h
+	$(check-duo)
+	$(CC) $(CFLAGS) $(WARN) -o $@ reader.c display_terminal.c lipsync.c $(LDFLAGS) -lm
+
 run: vcamera-host
 	$(if $(WAV),,$(error usage: make run WAV=path/to/voice.wav))
 	./vcamera-host < $(WAV)
 
 clean:
-	rm -f test_vcamera vcamera-host vcamera
+	rm -f test_vcamera vcamera-host vcamera vcamera-reader
 
-.PHONY: host duo test run clean
+.PHONY: host duo reader test run clean

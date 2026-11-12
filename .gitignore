@@ -7,4 +7,5 @@
 /vcamera/test_vcamera
 /vcamera/vcamera-host
 /vcamera/vcamera
+/vcamera/vcamera-reader
 /vcamera/*.wav
