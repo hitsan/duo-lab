@@ -120,20 +120,48 @@ static void testMicReadsSamplesThenWraps(void)
     assertMicReads(8000, 1, (const int16_t[]){100, -200, 300, -400, 500, -600}, 6);
 }
 
-static void testMicDecimates16kTo8k(void)
-{
-    assertMicReads(16000, 1, (const int16_t[]){100, 300, 500}, 3);
-}
-
-static void testMicUsesFirstChannel(void)
-{
-    assertMicReads(8000, 2, (const int16_t[]){100, 300, 500}, 3);
-}
-
 static void testMicRejectsRateNotMultipleOf8k(void)
 {
     feedWavToStdin(11025, 1);
     assert(!InitMic());
+}
+
+/* Check the player yields expected in order at 8kHz, then wraps to the start */
+static void assertPlayerReads(uint32_t sample_rate, uint16_t channels, const int16_t *expected, int count)
+{
+    uint8_t data[128];
+    const size_t size = buildWav(data, 16, false, sample_rate, channels);
+    WavPlayer player;
+    assert(StartWavPlayer(&player, data, size, 8000));
+    int index = 0;
+    while (index < count) {
+        assert(ReadWavPlayerSample(&player) == expected[index]);
+        index++;
+    }
+    assert(ReadWavPlayerSample(&player) == expected[0]);
+}
+
+static void testPlayerReadsSamplesThenWraps(void)
+{
+    assertPlayerReads(8000, 1, (const int16_t[]){100, -200, 300, -400, 500, -600}, 6);
+}
+
+static void testPlayerDecimates16kTo8k(void)
+{
+    assertPlayerReads(16000, 1, (const int16_t[]){100, 300, 500}, 3);
+}
+
+static void testPlayerUsesFirstChannel(void)
+{
+    assertPlayerReads(8000, 2, (const int16_t[]){100, 300, 500}, 3);
+}
+
+static void testPlayerRejectsRateNotMultipleOf8k(void)
+{
+    uint8_t data[128];
+    const size_t size = buildWav(data, 16, false, 11025, 1);
+    WavPlayer player;
+    assert(!StartWavPlayer(&player, data, size, 8000));
 }
 
 static void testWavReads16bitMono(void)
@@ -169,9 +197,11 @@ static void testWavSkipsUnknownChunk(void)
 int main(void)
 {
     testMicReadsSamplesThenWraps();
-    testMicDecimates16kTo8k();
-    testMicUsesFirstChannel();
     testMicRejectsRateNotMultipleOf8k();
+    testPlayerReadsSamplesThenWraps();
+    testPlayerDecimates16kTo8k();
+    testPlayerUsesFirstChannel();
+    testPlayerRejectsRateNotMultipleOf8k();
     testWavReads16bitMono();
     testWavRejectsNon16bit();
     testWavSkipsUnknownChunk();

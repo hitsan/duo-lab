@@ -73,3 +73,27 @@ bool ParseWav(const uint8_t *data, size_t size, Wav *wav)
     }
     return false;
 }
+
+bool StartWavPlayer(WavPlayer *player, const uint8_t *data, size_t size, int sample_rate)
+{
+    if (!ParseWav(data, size, &player->wav)) {
+        return false;
+    }
+    if (player->wav.sample_rate % sample_rate != 0 || player->wav.frame_count == 0) {
+        return false;
+    }
+    /* ponytail: decimation without LPF. Only the level matters, so aliasing is ignored */
+    player->frames_per_sample = (size_t)(player->wav.sample_rate / sample_rate);
+    player->frame_index = 0;
+    return true;
+}
+
+int16_t ReadWavPlayerSample(WavPlayer *player)
+{
+    if (player->frame_index >= player->wav.frame_count) {
+        player->frame_index = 0;
+    }
+    const int16_t sample = player->wav.samples[player->frame_index * player->wav.channels];
+    player->frame_index += player->frames_per_sample;
+    return sample;
+}
