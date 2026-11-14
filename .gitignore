@@ -9,3 +9,4 @@
 /vcamera/vcamera
 /vcamera/vcamera-reader
 /vcamera/*.wav
+/vcamera/vcamera-uvc
