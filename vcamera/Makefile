@@ -11,8 +11,8 @@ reader: vcamera-reader
 test: test_vcamera
 	./test_vcamera
 
-test_vcamera: test_vcamera.c lipsync.c lipsync.h mic.h mic_wav.c wav.c wav.h
-	gcc $(HOST_CFLAGS) -o $@ test_vcamera.c lipsync.c mic_wav.c wav.c -lm
+test_vcamera: test_vcamera.c lipsync.c lipsync.h mic.h mic_wav.c uvc_control.c uvc_control.h wav.c wav.h
+	gcc $(HOST_CFLAGS) -o $@ test_vcamera.c lipsync.c mic_wav.c uvc_control.c wav.c -lm
 
 vcamera-host: main.c display.h display_terminal.c lipsync.c lipsync.h mic.h mic_wav.c wav.c wav.h
 	gcc $(HOST_CFLAGS) -o $@ main.c display_terminal.c lipsync.c mic_wav.c wav.c -lm

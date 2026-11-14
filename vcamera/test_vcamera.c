@@ -4,6 +4,7 @@
 #include <string.h>
 #include "lipsync.h"
 #include "mic.h"
+#include "uvc_control.h"
 #include "wav.h"
 
 #define OPENNESS(level) CalcMouthOpenness((level), -45.0f, -12.0f)
@@ -194,6 +195,97 @@ static void testWavSkipsUnknownChunk(void)
     assert(wav.samples[2] == 300);
 }
 
+#define STREAMING_INTERFACE 3
+#define CLASS_GET 0xa1
+#define CLASS_SET 0x21
+#define PROBE_CONTROL 1
+#define COMMIT_CONTROL 2
+
+static UvcResponse answerStreaming(uint8_t request_type, uint8_t request, int selector, uint16_t length)
+{
+    const UvcRequest uvc_request = {
+        .request_type = request_type,
+        .request = request,
+        .value = (uint16_t)(selector << 8),
+        .index = STREAMING_INTERFACE,
+        .length = length,
+    };
+    UvcResponse response;
+    AnswerUvcRequest(&uvc_request, STREAMING_INTERFACE, &response);
+    return response;
+}
+
+static uint32_t readLe32(const uint8_t *bytes)
+{
+    return bytes[0] | bytes[1] << 8 | bytes[2] << 16 | (uint32_t)bytes[3] << 24;
+}
+
+static void testProbeGetCurAnswersFormat(void)
+{
+    const UvcResponse response = answerStreaming(CLASS_GET, 0x81, PROBE_CONTROL, 26);
+    assert(response.length == 26);
+    assert(response.data[2] == 1);                      /* bFormatIndex */
+    assert(response.data[3] == 1);                      /* bFrameIndex */
+    assert(readLe32(response.data + 4) == 333333);      /* dwFrameInterval: 30fps */
+    assert(readLe32(response.data + 18) == 320 * 240 * 2);
+    assert(readLe32(response.data + 22) == 1024);
+}
+
+static void testProbeMinMaxDefAnswerSameFormat(void)
+{
+    const UvcResponse current = answerStreaming(CLASS_GET, 0x81, PROBE_CONTROL, 26);
+    const uint8_t requests[] = {0x82, 0x83, 0x87};
+    int index = 0;
+    while (index < 3) {
+        const UvcResponse response = answerStreaming(CLASS_GET, requests[index], COMMIT_CONTROL, 26);
+        assert(response.length == 26);
+        assert(memcmp(response.data, current.data, 26) == 0);
+        index++;
+    }
+}
+
+static void testProbeInfoAndLength(void)
+{
+    const UvcResponse info = answerStreaming(CLASS_GET, 0x86, PROBE_CONTROL, 1);
+    assert(info.length == 1);
+    assert(info.data[0] == 0x03);
+    const UvcResponse length = answerStreaming(CLASS_GET, 0x85, PROBE_CONTROL, 2);
+    assert(length.length == 2);
+    assert(length.data[0] == 26 && length.data[1] == 0);
+}
+
+static void testProbeSetCurAcceptsData(void)
+{
+    assert(answerStreaming(CLASS_SET, 0x01, COMMIT_CONTROL, 26).length == 26);
+}
+
+static void testProbeShortRequestIsTruncated(void)
+{
+    assert(answerStreaming(CLASS_GET, 0x81, PROBE_CONTROL, 8).length == 8);
+}
+
+static void testRequestsOutsideStreamingInterfaceStall(void)
+{
+    const UvcRequest unit_request = {.request_type = CLASS_GET, .request = 0x86, .value = 0x0200, .index = 0x0202, .length = 1};
+    const UvcRequest control_interface_request = {.request_type = CLASS_GET, .request = 0x81, .value = 0x0200, .index = 2, .length = 1};
+    UvcResponse response;
+    AnswerUvcRequest(&unit_request, STREAMING_INTERFACE, &response);
+    assert(response.length < 0);
+    AnswerUvcRequest(&control_interface_request, STREAMING_INTERFACE, &response);
+    assert(response.length < 0);
+}
+
+static void testMouthFrameIsSolidYuyvBrighterWhenOpen(void)
+{
+    static uint8_t closed[UVC_FRAME_BYTES];
+    static uint8_t open[UVC_FRAME_BYTES];
+    FillMouthFrame(closed, 0, 5);
+    FillMouthFrame(open, 4, 5);
+    assert(closed[0] < open[0]);
+    assert(closed[1] == 128 && closed[3] == 128);       /* neutral chroma */
+    assert(open[UVC_FRAME_BYTES - 2] == open[0]);
+}
+
 int main(void)
 {
     testMicReadsSamplesThenWraps();
@@ -210,6 +302,13 @@ int main(void)
     testVoiceLevelReaches63PercentAfterRiseTime();
     testVoiceLevelFallsSlowerThanItRises();
     testMouthShapeSpansClosedToWidest();
+    testProbeGetCurAnswersFormat();
+    testProbeMinMaxDefAnswerSameFormat();
+    testProbeInfoAndLength();
+    testProbeSetCurAcceptsData();
+    testProbeShortRequestIsTruncated();
+    testRequestsOutsideStreamingInterfaceStall();
+    testMouthFrameIsSolidYuyvBrighterWhenOpen();
     puts("ok");
     return 0;
 }
