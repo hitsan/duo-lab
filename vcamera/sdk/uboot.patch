@@ -1,0 +1,13 @@
+diff --git a/u-boot-2021.10/include/configs/cv180x-asic.h b/u-boot-2021.10/include/configs/cv180x-asic.h
+index 67d1a0e98..78fa2ab25 100644
+--- a/u-boot-2021.10/include/configs/cv180x-asic.h
++++ b/u-boot-2021.10/include/configs/cv180x-asic.h
+@@ -230,7 +230,7 @@
+ 	#endif
+ 
+ 	#define OTHERBOOTARGS   "earlycon=sbi riscv.fwsz="  __stringify(CVIMMAP_OPENSBI_SIZE) \
+-		EARLYCON_RELEASE CONSOLE_LOGLEVEL
++		EARLYCON_RELEASE CONSOLE_LOGLEVEL " clk_ignore_unused"
+ 
+ 	/* config mtdids */
+ 	#ifdef CONFIG_NAND_SUPPORT

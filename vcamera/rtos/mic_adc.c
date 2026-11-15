@@ -25,30 +25,20 @@ _Static_assert(TIMER_HZ % MIC_SAMPLE_RATE == 0, "timer must split the sample rat
 static AdcBias bias;
 static unsigned long next_sample_time;
 
-/* ponytail: read-modify-write races Linux on clk_en_0; Linux only touches it at boot and driver probe */
-static void keepSaradcClock(void)
-{
-    const uint32_t enabled = mmio_read_32(CLOCK_ENABLE_0);
-    if ((enabled & CLOCK_SARADC) == 0) {
-        mmio_write_32(CLOCK_ENABLE_0, enabled | CLOCK_SARADC);
-    }
-}
-
 static uint16_t readAdc(void)
 {
     /* The done flag, not the busy bit: busy may not be up yet right after start */
     mmio_write_32(SARADC_INTERRUPT_CLEAR, SARADC_DONE);
     mmio_write_32(SARADC_CONTROL, SARADC_SELECT_GP26 | SARADC_START);
     while ((mmio_read_32(SARADC_INTERRUPT_RAW) & SARADC_DONE) == 0) {
-        /* Linux gates clk_saradc as unused late in boot; the conversion resumes once it is back */
-        keepSaradcClock();
     }
     return (uint16_t)(mmio_read_32(SARADC_RESULT_GP26) & SARADC_RESULT_MASK);
 }
 
 bool InitMic(void)
 {
-    keepSaradcClock();
+    /* Runs before Linux boots; uboot.patch keeps Linux from gating it as unused afterwards */
+    mmio_write_32(CLOCK_ENABLE_0, mmio_read_32(CLOCK_ENABLE_0) | CLOCK_SARADC);
     mmio_write_32(SARADC_CYCLE, mmio_read_32(SARADC_CYCLE) | SARADC_CLOCK_DIVIDE_16);
     StartAdcBias(&bias, readAdc());
     next_sample_time = GetSysTime();

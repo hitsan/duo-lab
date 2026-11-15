@@ -25,9 +25,11 @@ prepareSdk()
     fi
 
     # Applying twice must be a no-op so the script can be rerun
-    if ! git -C "$SDK_DIR" apply --reverse --check "$VCAMERA_DIR/sdk/rtos.patch" 2>/dev/null; then
-        git -C "$SDK_DIR" apply "$VCAMERA_DIR/sdk/rtos.patch" || fail "rtos.patch does not apply"
-    fi
+    for patch in "$VCAMERA_DIR"/sdk/*.patch; do
+        if ! git -C "$SDK_DIR" apply --reverse --check "$patch" 2>/dev/null; then
+            git -C "$SDK_DIR" apply "$patch" || fail "$(basename "$patch") does not apply"
+        fi
+    done
     while read -r line; do
         if ! grep -qxF "$line" "$LINUX_DEFCONFIG"; then
             echo "$line" >> "$LINUX_DEFCONFIG"

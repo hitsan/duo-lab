@@ -44,6 +44,7 @@ SDK はリポジトリ直下の `duo-buildroot-sdk/` (submodule) を使う。SDK
 |---|---|
 | `sdk/linux.config` | カーネルの defconfig に足す行。UVC ガジェットを有効にする |
 | `sdk/rtos.patch` | FreeRTOS への変更 (上の表) |
+| `sdk/uboot.patch` | カーネル引数に `clk_ignore_unused` を足す。Linux が未使用とみなして clk_saradc を止めると小コアの ADC が固まるため |
 | `build.sh` | submodule と host-tools を取得し、`sdk/` を当ててビルドする |
 
 ビルドに要るホストのツールは dev-shell の `milkv-duo-sdk` にそろっていて、`.envrc` (direnv) が読み込む。
