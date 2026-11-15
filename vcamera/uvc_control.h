@@ -2,6 +2,7 @@
 #define UVC_CONTROL_H
 
 #include <stdint.h>
+#include "vowel.h"
 
 #define UVC_FRAME_WIDTH 320
 #define UVC_FRAME_HEIGHT 240
@@ -24,7 +25,7 @@ typedef struct {
 } UvcResponse;
 
 void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcResponse *response);
-/* YUYV face whose mouth opens from a line (openness 0) to a wide ellipse (255) */
-void FillMouthFrame(uint8_t *frame, uint8_t openness);
+/* YUYV face whose mouth opens from a line (openness 0) to its full shape (255) */
+void FillMouthFrame(uint8_t *frame, uint8_t openness, MouthShape shape);
 
 #endif

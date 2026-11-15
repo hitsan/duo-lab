@@ -10,7 +10,7 @@
  
 --- a/freertos/cvitek/task/comm/CMakeLists.txt
 +++ b/freertos/cvitek/task/comm/CMakeLists.txt
-@@ -1,6 +1,20 @@
+@@ -1,6 +1,21 @@
  file(GLOB _SOURCES "src/${RUN_ARCH}/*.c")
  
  include_directories(include)
@@ -25,7 +25,8 @@
 +	${VCAMERA_DIR}/lipsync.c
 +	${VCAMERA_DIR}/rtos/display_shared.c
 +	${VCAMERA_DIR}/rtos/mic_adc.c
-+	${VCAMERA_DIR}/rtos/vcamera_task.c)
++	${VCAMERA_DIR}/rtos/vcamera_task.c
++	${VCAMERA_DIR}/vowel.c)
 +include_directories(${VCAMERA_DIR})
 +
  if (BOARD MATCHES "milkv-duos")

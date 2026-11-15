@@ -29,7 +29,9 @@ int main(void)
     struct timespec due;
     clock_gettime(CLOCK_MONOTONIC, &due);
     while (true) {
-        ShowMouth((uint8_t)*shared_openness);
+        const uint32_t shared = *shared_openness;
+        const MouthShape shape = (MouthShape)((shared >> SHARED_SHAPE_SHIFT) & 0xFF);
+        ShowMouth((uint8_t)shared, shape < MOUTH_SHAPE_COUNT ? shape : MOUTH_A);
         due.tv_nsec += NS_PER_SECOND / DISPLAY_FPS;
         if (due.tv_nsec >= NS_PER_SECOND) {
             due.tv_sec++;

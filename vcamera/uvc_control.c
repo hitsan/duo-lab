@@ -32,9 +32,18 @@ static const YuvColor MOUTH = {94, 118, 184};
 #define EYE_Y 95
 #define EYE_RADIUS 10
 #define MOUTH_Y 160
-#define MOUTH_HALF_WIDTH 35
 #define MOUTH_CLOSED_HALF_HEIGHT 2
-#define MOUTH_OPEN_HALF_HEIGHT 30
+
+/* Fully open size per shape: A wide and tall, I spread and low, U narrow and round.
+   Stands in for the illustration's mouth images */
+static const struct {
+    int half_width;
+    int open_half_height;
+} MOUTH_SIZES[MOUTH_SHAPE_COUNT] = {
+    [MOUTH_A] = {35, 30},
+    [MOUTH_I] = {45, 16},
+    [MOUTH_U] = {20, 22},
+};
 
 static void putLe16(uint8_t *bytes, uint16_t value)
 {
@@ -100,9 +109,9 @@ static bool insideEllipse(int x, int y, int center_x, int center_y, int half_wid
         <= half_width * half_width * half_height * half_height;
 }
 
-static YuvColor colorAt(int x, int y, int mouth_half_height)
+static YuvColor colorAt(int x, int y, int mouth_half_width, int mouth_half_height)
 {
-    if (insideEllipse(x, y, FACE_X, MOUTH_Y, MOUTH_HALF_WIDTH, mouth_half_height)) {
+    if (insideEllipse(x, y, FACE_X, MOUTH_Y, mouth_half_width, mouth_half_height)) {
         return MOUTH;
     }
     if (insideEllipse(x, y, FACE_X - EYE_OFFSET_X, EYE_Y, EYE_RADIUS, EYE_RADIUS)
@@ -115,17 +124,18 @@ static YuvColor colorAt(int x, int y, int mouth_half_height)
     return BACKGROUND;
 }
 
-void FillMouthFrame(uint8_t *frame, uint8_t openness)
+void FillMouthFrame(uint8_t *frame, uint8_t openness, MouthShape shape)
 {
+    const int mouth_half_width = MOUTH_SIZES[shape].half_width;
     const int mouth_half_height = MOUTH_CLOSED_HALF_HEIGHT
-        + ((MOUTH_OPEN_HALF_HEIGHT - MOUTH_CLOSED_HALF_HEIGHT) * openness + 127) / 255;
+        + ((MOUTH_SIZES[shape].open_half_height - MOUTH_CLOSED_HALF_HEIGHT) * openness + 127) / 255;
     int y = 0;
     while (y < UVC_FRAME_HEIGHT) {
         int x = 0;
         while (x < UVC_FRAME_WIDTH) {
             /* YUYV: two pixels share one chroma pair, taken from the left pixel */
-            const YuvColor left = colorAt(x, y, mouth_half_height);
-            const YuvColor right = colorAt(x + 1, y, mouth_half_height);
+            const YuvColor left = colorAt(x, y, mouth_half_width, mouth_half_height);
+            const YuvColor right = colorAt(x + 1, y, mouth_half_width, mouth_half_height);
             uint8_t *pair = frame + (y * UVC_FRAME_WIDTH + x) * 2;
             pair[0] = left.luma;
             pair[1] = left.blue;

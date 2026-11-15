@@ -302,9 +302,9 @@ static uint8_t open_frame[UVC_FRAME_BYTES];
 
 static void fillTestFrames(void)
 {
-    FillMouthFrame(closed_frame, 0);
-    FillMouthFrame(half_frame, 128);
-    FillMouthFrame(open_frame, 255);
+    FillMouthFrame(closed_frame, 0, MOUTH_A);
+    FillMouthFrame(half_frame, 128, MOUTH_A);
+    FillMouthFrame(open_frame, 255, MOUTH_A);
 }
 
 static void testFaceSitsOnBackground(void)
@@ -492,8 +492,56 @@ static void testMouthShapeGroupsEWithIAndOWithU(void)
     assert(SelectMouthShapeOfVowel(VOWEL_O) == MOUTH_U);
 }
 
+static void feedSyntheticFrame(VowelTracker *tracker, int vowel, bool voiced, const VowelFeature templates[VOWEL_COUNT], int count, bool *completed)
+{
+    int16_t frame[VOWEL_FRAME_SAMPLES];
+    synthesizeVowel(frame, 120.0f, FORMANTS[vowel][0], FORMANTS[vowel][1], 3000.0f);
+    int n = 0;
+    while (n < count) {
+        *completed = TrackVowel(tracker, frame[n], voiced, templates);
+        n++;
+    }
+}
+
+static void testTrackerUpdatesShapeOncePerFrame(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    learnSyntheticTemplates(templates);
+    VowelTracker tracker = {.shape = MOUTH_A};
+    bool completed;
+    feedSyntheticFrame(&tracker, VOWEL_I, true, templates, VOWEL_FRAME_SAMPLES - 1, &completed);
+    assert(!completed && tracker.shape == MOUTH_A);
+    feedSyntheticFrame(&tracker, VOWEL_I, true, templates, 1, &completed);
+    assert(completed && tracker.shape == MOUTH_I);
+}
+
+static void testTrackerKeepsShapeWhenSilent(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    learnSyntheticTemplates(templates);
+    VowelTracker tracker = {.shape = MOUTH_U};
+    bool completed;
+    feedSyntheticFrame(&tracker, VOWEL_A, false, templates, VOWEL_FRAME_SAMPLES, &completed);
+    assert(completed && tracker.shape == MOUTH_U);
+}
+
+static void testMouthShapeChangesWidth(void)
+{
+    static uint8_t spread[UVC_FRAME_BYTES];
+    static uint8_t rounded[UVC_FRAME_BYTES];
+    fillTestFrames();
+    FillMouthFrame(spread, 255, MOUTH_I);
+    FillMouthFrame(rounded, 255, MOUTH_U);
+    const uint8_t mouth = lumaAt(open_frame, 160, 160);
+    assert(lumaAt(open_frame, 200, 160) != mouth && lumaAt(spread, 200, 160) == mouth);
+    assert(lumaAt(open_frame, 185, 160) == mouth && lumaAt(rounded, 185, 160) != mouth);
+}
+
 int main(void)
 {
+    testMouthShapeChangesWidth();
+    testTrackerUpdatesShapeOncePerFrame();
+    testTrackerKeepsShapeWhenSilent();
     testVowelFeaturePeaksAtToneBand();
     testVowelFeatureIgnoresLoudness();
     testVowelClassifiesAllFiveAtAnotherPitch();

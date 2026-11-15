@@ -10,3 +10,4 @@
 /vcamera/vcamera-reader
 /vcamera/*.wav
 /vcamera/vcamera-uvc
+/vcamera/vcamera-calibrate

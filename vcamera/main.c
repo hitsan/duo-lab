@@ -7,6 +7,7 @@
 #include "display.h"
 #include "lipsync.h"
 #include "mic.h"
+#include "vowel_templates.h"
 
 #define MAX_INIT_TRIES 5
 
@@ -35,11 +36,14 @@ int main(void)
     }
 
     float voice_level = 0.0f;
+    VowelTracker tracker = {.shape = MOUTH_A};
     while (true) {
-        voice_level = SmoothVoiceLevel(voice_level, abs(ReadMicSample()) / 32768.0f);
+        const int16_t sample = ReadMicSample();
+        voice_level = SmoothVoiceLevel(voice_level, abs(sample) / 32768.0f);
         const uint8_t openness = CalcMouthOpenness(voice_level, CLOSED_DB, FULL_OPEN_DB);
+        TrackVowel(&tracker, sample, openness > 0, VOWEL_TEMPLATES);
         if (isFrameDue()) {
-            ShowMouth(openness);
+            ShowMouth(openness, tracker.shape);
         }
     }
 }

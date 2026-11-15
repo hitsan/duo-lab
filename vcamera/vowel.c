@@ -150,3 +150,18 @@ MouthShape SelectMouthShapeOfVowel(Vowel vowel)
     };
     return SHAPES[vowel];
 }
+
+bool TrackVowel(VowelTracker *tracker, int16_t sample, bool voiced, const VowelFeature templates[VOWEL_COUNT])
+{
+    tracker->frame[tracker->filled] = sample;
+    tracker->filled++;
+    if (tracker->filled < VOWEL_FRAME_SAMPLES) {
+        return false;
+    }
+    tracker->filled = 0;
+    ExtractVowelFeature(tracker->frame, &tracker->feature);
+    if (voiced) {
+        tracker->shape = SelectMouthShapeOfVowel(ClassifyVowel(&tracker->feature, templates));
+    }
+    return true;
+}

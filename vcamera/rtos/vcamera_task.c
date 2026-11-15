@@ -3,6 +3,8 @@
 #include "display.h"
 #include "lipsync.h"
 #include "mic.h"
+#include "shared_openness.h"
+#include "vowel_templates.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "printf.h"
@@ -24,9 +26,16 @@ void RunVcameraTask(void *parameters)
 
     float voice_level = 0.0f;
     float held_level = 0.0f;
+    static VowelTracker tracker = {.shape = MOUTH_A};
     while (true) {
-        voice_level = SmoothVoiceLevel(voice_level, abs(ReadMicSample()) / 32768.0f);
+        const int16_t sample = ReadMicSample();
+        voice_level = SmoothVoiceLevel(voice_level, abs(sample) / 32768.0f);
         held_level = voice_level > held_level ? voice_level : held_level - MIC_HOLD_RATE * held_level;
-        ShowMouth(CalcMouthOpenness(held_level, MIC_CLOSED_DB, MIC_FULL_OPEN_DB));
+        /* Classify only while the voice itself is loud, not while the held mouth is closing */
+        const bool voiced = CalcMouthOpenness(voice_level, MIC_CLOSED_DB, MIC_FULL_OPEN_DB) > 0;
+        if (TrackVowel(&tracker, sample, voiced, VOWEL_TEMPLATES)) {
+            ShareVowelFeature(&tracker.feature);
+        }
+        ShowMouth(CalcMouthOpenness(held_level, MIC_CLOSED_DB, MIC_FULL_OPEN_DB), tracker.shape);
     }
 }
