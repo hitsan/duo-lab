@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "adc_sample.h"
+#include <math.h>
+#include "vowel.h"
 #include "lipsync.h"
 #include "mic.h"
 #include "uvc_control.h"
@@ -374,8 +376,128 @@ static void testAdcClampsToInt16(void)
     assert(ConvertAdcSample(&bias, 0) == -32768);
 }
 
+/* Harmonics of f0 shaped by two formant resonances, like a sustained vowel */
+static void synthesizeVowel(int16_t *frame, float f0, float f1, float f2, float amplitude)
+{
+    int n = 0;
+    while (n < VOWEL_FRAME_SAMPLES) {
+        float value = 0.0f;
+        float harmonic = f0;
+        while (harmonic < 4000.0f) {
+            const float d1 = (harmonic - f1) / 100.0f;
+            const float d2 = (harmonic - f2) / 120.0f;
+            const float gain = (1.0f / (1.0f + d1 * d1) + 0.7f / (1.0f + d2 * d2)) * f0 / harmonic;
+            value += gain * sinf(2.0f * 3.14159265f * harmonic * n / 8000.0f);
+            harmonic += f0;
+        }
+        frame[n] = (int16_t)(amplitude * value);
+        n++;
+    }
+}
+
+/* Japanese adult formants (F1, F2) */
+static const float FORMANTS[5][2] = {
+    {750.0f, 1200.0f},  /* a */
+    {300.0f, 2300.0f},  /* i */
+    {330.0f, 1300.0f},  /* u */
+    {500.0f, 1900.0f},  /* e */
+    {500.0f, 850.0f},   /* o */
+};
+
+static Vowel classifySynthetic(const VowelFeature templates[VOWEL_COUNT], int vowel, float f0, float amplitude)
+{
+    int16_t frame[VOWEL_FRAME_SAMPLES];
+    synthesizeVowel(frame, f0, FORMANTS[vowel][0], FORMANTS[vowel][1], amplitude);
+    VowelFeature feature;
+    ExtractVowelFeature(frame, &feature);
+    return ClassifyVowel(&feature, templates);
+}
+
+static void learnSyntheticTemplates(VowelFeature templates[VOWEL_COUNT])
+{
+    int vowel = 0;
+    while (vowel < VOWEL_COUNT) {
+        int16_t frame[VOWEL_FRAME_SAMPLES];
+        synthesizeVowel(frame, 120.0f, FORMANTS[vowel][0], FORMANTS[vowel][1], 3000.0f);
+        ExtractVowelFeature(frame, &templates[vowel]);
+        vowel++;
+    }
+}
+
+static int loudestBand(const VowelFeature *feature)
+{
+    int loudest = 0;
+    int band = 1;
+    while (band < VOWEL_BANDS) {
+        if (feature->bands[band] > feature->bands[loudest]) {
+            loudest = band;
+        }
+        band++;
+    }
+    return loudest;
+}
+
+static void testVowelFeaturePeaksAtToneBand(void)
+{
+    int16_t low[VOWEL_FRAME_SAMPLES];
+    int16_t high[VOWEL_FRAME_SAMPLES];
+    int n = 0;
+    while (n < VOWEL_FRAME_SAMPLES) {
+        low[n] = (int16_t)(8000.0f * sinf(2.0f * 3.14159265f * 400.0f * n / 8000.0f));
+        high[n] = (int16_t)(8000.0f * sinf(2.0f * 3.14159265f * 2300.0f * n / 8000.0f));
+        n++;
+    }
+    VowelFeature low_feature;
+    VowelFeature high_feature;
+    ExtractVowelFeature(low, &low_feature);
+    ExtractVowelFeature(high, &high_feature);
+    assert(loudestBand(&low_feature) < loudestBand(&high_feature));
+}
+
+static void testVowelFeatureIgnoresLoudness(void)
+{
+    int16_t quiet[VOWEL_FRAME_SAMPLES];
+    int16_t loud[VOWEL_FRAME_SAMPLES];
+    synthesizeVowel(quiet, 120.0f, 750.0f, 1200.0f, 4000.0f);
+    synthesizeVowel(loud, 120.0f, 750.0f, 1200.0f, 16000.0f);
+    VowelFeature quiet_feature;
+    VowelFeature loud_feature;
+    ExtractVowelFeature(quiet, &quiet_feature);
+    ExtractVowelFeature(loud, &loud_feature);
+    int band = 0;
+    while (band < VOWEL_BANDS) {
+        assert(fabsf(quiet_feature.bands[band] - loud_feature.bands[band]) < 0.05f);
+        band++;
+    }
+}
+
+static void testVowelClassifiesAllFiveAtAnotherPitch(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    learnSyntheticTemplates(templates);
+    int vowel = 0;
+    while (vowel < VOWEL_COUNT) {
+        assert(classifySynthetic(templates, vowel, 150.0f, 2000.0f) == (Vowel)vowel);
+        assert(classifySynthetic(templates, vowel, 100.0f, 6000.0f) == (Vowel)vowel);
+        vowel++;
+    }
+}
+
+static void testMouthShapeGroupsEWithIAndOWithU(void)
+{
+    assert(SelectMouthShapeOfVowel(VOWEL_A) == MOUTH_A);
+    assert(SelectMouthShapeOfVowel(VOWEL_I) == MOUTH_I);
+    assert(SelectMouthShapeOfVowel(VOWEL_E) == MOUTH_I);
+    assert(SelectMouthShapeOfVowel(VOWEL_U) == MOUTH_U);
+    assert(SelectMouthShapeOfVowel(VOWEL_O) == MOUTH_U);
+}
+
 int main(void)
 {
+    testVowelFeaturePeaksAtToneBand();
+    testVowelFeatureIgnoresLoudness();
+    testVowelClassifiesAllFiveAtAnotherPitch();
+    testMouthShapeGroupsEWithIAndOWithU();
     testAdcAtBiasIsSilence();
     testAdcAboveBiasIsScaledTo16bit();
     testAdcBiasFollowsDrift();
