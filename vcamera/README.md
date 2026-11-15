@@ -53,3 +53,12 @@ SDK はリポジトリ直下の `duo-buildroot-sdk/` (submodule) を使う。SDK
 ./build.sh kernel                            # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
 ./build.sh image                             # SD イメージ全体
 ```
+
+## 顔の絵
+
+UVC に映す顔は `art/face.png` (白黒の線画) から作る。絵と、それから作る `face_art.h` は git に入れない。テストと `vcamera-uvc` のビルドには先に `make face_art.h` が要る。`art/convert.py` が 240px に縮小して 2 値化し、いちばん大きい線を輪郭、残りでいちばん下にある線を口とみなして切り出し、`face_art.h` (1 bit/pixel) に書く。
+`uvc_control.c` は口を消した顔をそのまま描き、口だけを開き具合で縦に、母音の形 (あ / い・え / う・お) で縦横に伸縮して重ねる。閉じると口の輪郭を 3 行に潰して線にする。
+
+```sh
+make face_art.h                              # art/face.png から。別の絵は ART=path。Pillow を nix から取る
+```

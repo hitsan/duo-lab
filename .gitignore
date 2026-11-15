@@ -11,3 +11,5 @@
 /vcamera/*.wav
 /vcamera/vcamera-uvc
 /vcamera/vcamera-calibrate
+/vcamera/art/face.png
+/vcamera/face_art.h

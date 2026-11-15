@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "adc_sample.h"
+#include "face_art.h"
 #include <math.h>
 #include "vowel.h"
 #include "lipsync.h"
@@ -283,22 +284,14 @@ static uint8_t lumaAt(const uint8_t *frame, int x, int y)
     return frame[(y * UVC_FRAME_WIDTH + x) * 2];
 }
 
-static int countPixelsLike(const uint8_t *frame, uint8_t luma)
-{
-    int count = 0;
-    int pixel = 0;
-    while (pixel < UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT) {
-        if (frame[pixel * 2] == luma) {
-            count++;
-        }
-        pixel++;
-    }
-    return count;
-}
-
 static uint8_t closed_frame[UVC_FRAME_BYTES];
 static uint8_t half_frame[UVC_FRAME_BYTES];
 static uint8_t open_frame[UVC_FRAME_BYTES];
+
+#define ART_LEFT ((UVC_FRAME_WIDTH - FACE_ART_SIZE) / 2)
+#define MOUTH_CENTER_X (ART_LEFT + FACE_ART_MOUTH_LEFT + FACE_ART_MOUTH_WIDTH / 2)
+#define MOUTH_CENTER_Y (FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT / 2)
+#define AROUND_MOUTH 60
 
 static void fillTestFrames(void)
 {
@@ -307,36 +300,91 @@ static void fillTestFrames(void)
     FillMouthFrame(open_frame, 255, MOUTH_A);
 }
 
-static void testFaceSitsOnBackground(void)
+static bool artInk(int x, int y)
 {
-    fillTestFrames();
-    assert(lumaAt(open_frame, 0, 0) != lumaAt(open_frame, 160, 60));    /* corner vs forehead */
+    return FACE_ART[y * (FACE_ART_SIZE / 8) + x / 8] & (0x80 >> (x % 8));
 }
 
-static void testEyesDifferFromFace(void)
+static bool isInk(const uint8_t *frame, int x, int y)
 {
-    fillTestFrames();
-    assert(lumaAt(open_frame, 125, 95) != lumaAt(open_frame, 160, 60));
-    assert(lumaAt(open_frame, 195, 95) == lumaAt(open_frame, 125, 95));
+    return lumaAt(frame, x, y) < 128;
 }
 
-static void testMouthOpensUpwardFromItsCenter(void)
+static int countMouthInk(const uint8_t *frame)
+{
+    int count = 0;
+    int y = MOUTH_CENTER_Y - AROUND_MOUTH;
+    while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
+        int x = MOUTH_CENTER_X - AROUND_MOUTH;
+        while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
+            count += isInk(frame, x, y) && !artInk(x - ART_LEFT, y);
+            x++;
+        }
+        y++;
+    }
+    return count;
+}
+
+static int mouthInkWidth(const uint8_t *frame)
+{
+    int left = MOUTH_CENTER_X;
+    int right = MOUTH_CENTER_X;
+    int y = MOUTH_CENTER_Y - AROUND_MOUTH;
+    while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
+        int x = MOUTH_CENTER_X - AROUND_MOUTH;
+        while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
+            if (isInk(frame, x, y) && !artInk(x - ART_LEFT, y)) {
+                left = x < left ? x : left;
+                right = x > right ? x : right;
+            }
+            x++;
+        }
+        y++;
+    }
+    return right - left;
+}
+
+static void testArtFaceIsCopiedOntoPaper(void)
 {
     fillTestFrames();
-    const uint8_t mouth = lumaAt(open_frame, 160, 160);
-    const uint8_t face = lumaAt(open_frame, 160, 60);
-    assert(mouth != face);
-    assert(lumaAt(open_frame, 160, 145) == mouth);
-    assert(lumaAt(closed_frame, 160, 160) == mouth);   /* closed is a thin line */
-    assert(lumaAt(closed_frame, 160, 145) == face);
+    assert(!isInk(open_frame, 0, 0));
+    int y = 0;
+    while (y < FACE_ART_SIZE) {
+        int x = 0;
+        while (x < FACE_ART_SIZE) {
+            if (artInk(x, y)) {
+                assert(isInk(closed_frame, ART_LEFT + x, y));
+            }
+            x++;
+        }
+        y++;
+    }
+}
+
+static void testClosedMouthIsAThinLine(void)
+{
+    fillTestFrames();
+    const int closed = countMouthInk(closed_frame);
+    assert(closed > 0);
+    assert(closed * 4 < countMouthInk(open_frame));
 }
 
 static void testMouthGrowsWithOpenness(void)
 {
     fillTestFrames();
-    const uint8_t mouth = lumaAt(open_frame, 160, 160);
-    assert(countPixelsLike(closed_frame, mouth) < countPixelsLike(half_frame, mouth));
-    assert(countPixelsLike(half_frame, mouth) < countPixelsLike(open_frame, mouth));
+    assert(countMouthInk(closed_frame) < countMouthInk(half_frame));
+    assert(countMouthInk(half_frame) < countMouthInk(open_frame));
+}
+
+static void testMouthShapeChangesWidth(void)
+{
+    static uint8_t spread[UVC_FRAME_BYTES];
+    static uint8_t rounded[UVC_FRAME_BYTES];
+    fillTestFrames();
+    FillMouthFrame(spread, 255, MOUTH_I);
+    FillMouthFrame(rounded, 255, MOUTH_U);
+    assert(mouthInkWidth(spread) > mouthInkWidth(open_frame));
+    assert(mouthInkWidth(rounded) < mouthInkWidth(open_frame));
 }
 
 static void testAdcAtBiasIsSilence(void)
@@ -549,17 +597,6 @@ static void testTrackerKeepsShapeWhenSilent(void)
     assert(completed && tracker.shape == MOUTH_U);
 }
 
-static void testMouthShapeChangesWidth(void)
-{
-    static uint8_t spread[UVC_FRAME_BYTES];
-    static uint8_t rounded[UVC_FRAME_BYTES];
-    fillTestFrames();
-    FillMouthFrame(spread, 255, MOUTH_I);
-    FillMouthFrame(rounded, 255, MOUTH_U);
-    const uint8_t mouth = lumaAt(open_frame, 160, 160);
-    assert(lumaAt(open_frame, 200, 160) != mouth && lumaAt(spread, 200, 160) == mouth);
-    assert(lumaAt(open_frame, 185, 160) == mouth && lumaAt(rounded, 185, 160) != mouth);
-}
 
 /* Deterministic white noise */
 static int16_t nextNoise(uint32_t *state, int amplitude)
@@ -670,9 +707,8 @@ int main(void)
     testProbeSetCurAcceptsData();
     testProbeShortRequestIsTruncated();
     testRequestsOutsideStreamingInterfaceStall();
-    testFaceSitsOnBackground();
-    testEyesDifferFromFace();
-    testMouthOpensUpwardFromItsCenter();
+    testArtFaceIsCopiedOntoPaper();
+    testClosedMouthIsAThinLine();
     testMouthGrowsWithOpenness();
     puts("ok");
     return 0;

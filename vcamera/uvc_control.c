@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <string.h>
+#include "face_art.h"
 #include "uvc_control.h"
 
 #define REQUEST_TYPE_MASK 0x60
@@ -13,36 +14,25 @@
 #define PROBE_SIZE 26
 #define FRAME_INTERVAL 333333
 #define MAX_PAYLOAD_TRANSFER_SIZE 1024
-typedef struct {
-    uint8_t luma;
-    uint8_t blue;
-    uint8_t red;
-} YuvColor;
+#define LUMA_INK 16
+#define LUMA_PAPER 235
+#define CHROMA_NEUTRAL 128
+#define ART_LEFT ((UVC_FRAME_WIDTH - FACE_ART_SIZE) / 2)
+#define ART_STRIDE (FACE_ART_SIZE / 8)
+#define MOUTH_STRIDE ((FACE_ART_MOUTH_WIDTH + 7) / 8)
+#define MOUTH_CENTER_X (ART_LEFT + FACE_ART_MOUTH_LEFT + FACE_ART_MOUTH_WIDTH / 2)
+#define MOUTH_CENTER_Y (FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT / 2)
+/* Closed, the outline squashed to this many rows reads as a line */
+#define MOUTH_CLOSED_HEIGHT 3
 
-/* BT.601 limited range */
-static const YuvColor BACKGROUND = {205, 140, 116};
-static const YuvColor FACE = {213, 108, 144};
-static const YuvColor EYE = {52, 127, 130};
-static const YuvColor MOUTH = {94, 118, 184};
-
-#define FACE_X 160
-#define FACE_Y 120
-#define FACE_RADIUS 100
-#define EYE_OFFSET_X 35
-#define EYE_Y 95
-#define EYE_RADIUS 10
-#define MOUTH_Y 160
-#define MOUTH_CLOSED_HALF_HEIGHT 2
-
-/* Fully open size per shape: A wide and tall, I spread and low, U narrow and round.
-   Stands in for the illustration's mouth images */
+/* Fully open size per shape, in percent of the drawn mouth: I spread and low, U narrow */
 static const struct {
-    int half_width;
-    int open_half_height;
-} MOUTH_SIZES[MOUTH_SHAPE_COUNT] = {
-    [MOUTH_A] = {35, 30},
-    [MOUTH_I] = {45, 16},
-    [MOUTH_U] = {20, 22},
+    int width_percent;
+    int height_percent;
+} MOUTH_SCALES[MOUTH_SHAPE_COUNT] = {
+    [MOUTH_A] = {100, 100},
+    [MOUTH_I] = {140, 55},
+    [MOUTH_U] = {70, 90},
 };
 
 static void putLe16(uint8_t *bytes, uint16_t value)
@@ -101,47 +91,52 @@ void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcRes
     response->length = request->length < PROBE_SIZE ? request->length : PROBE_SIZE;
 }
 
-static bool insideEllipse(int x, int y, int center_x, int center_y, int half_width, int half_height)
+static bool bitAt(const uint8_t *bitmap, int stride, int x, int y)
 {
-    const int dx = x - center_x;
-    const int dy = y - center_y;
-    return dx * dx * half_height * half_height + dy * dy * half_width * half_width
-        <= half_width * half_width * half_height * half_height;
+    return (bitmap[y * stride + x / 8] & (0x80 >> (x % 8))) != 0;
 }
 
-static YuvColor colorAt(int x, int y, int mouth_half_width, int mouth_half_height)
+/* The drawn mouth stretched to width x height around its own center. Squashing ORs the source rows
+   so the outline merges into a line instead of breaking into dots */
+static bool mouthInkAt(int x, int y, int width, int height)
 {
-    if (insideEllipse(x, y, FACE_X, MOUTH_Y, mouth_half_width, mouth_half_height)) {
-        return MOUTH;
+    const int left = MOUTH_CENTER_X - width / 2;
+    const int top = MOUTH_CENTER_Y - height / 2;
+    if (x < left || x >= left + width || y < top || y >= top + height) {
+        return false;
     }
-    if (insideEllipse(x, y, FACE_X - EYE_OFFSET_X, EYE_Y, EYE_RADIUS, EYE_RADIUS)
-        || insideEllipse(x, y, FACE_X + EYE_OFFSET_X, EYE_Y, EYE_RADIUS, EYE_RADIUS)) {
-        return EYE;
-    }
-    if (insideEllipse(x, y, FACE_X, FACE_Y, FACE_RADIUS, FACE_RADIUS)) {
-        return FACE;
-    }
-    return BACKGROUND;
+    const int source_x = (x - left) * FACE_ART_MOUTH_WIDTH / width;
+    int source_y = (y - top) * FACE_ART_MOUTH_HEIGHT / height;
+    const int source_end = (y - top + 1) * FACE_ART_MOUTH_HEIGHT / height;
+    do {
+        if (bitAt(FACE_ART_MOUTH, MOUTH_STRIDE, source_x, source_y)) {
+            return true;
+        }
+        source_y++;
+    } while (source_y < source_end);
+    return false;
+}
+
+static uint8_t lumaAt(int x, int y, int mouth_width, int mouth_height)
+{
+    const bool face = x >= ART_LEFT && x < ART_LEFT + FACE_ART_SIZE && bitAt(FACE_ART, ART_STRIDE, x - ART_LEFT, y);
+    return face || mouthInkAt(x, y, mouth_width, mouth_height) ? LUMA_INK : LUMA_PAPER;
 }
 
 void FillMouthFrame(uint8_t *frame, uint8_t openness, MouthShape shape)
 {
-    const int mouth_half_width = MOUTH_SIZES[shape].half_width;
-    const int mouth_half_height = MOUTH_CLOSED_HALF_HEIGHT
-        + ((MOUTH_SIZES[shape].open_half_height - MOUTH_CLOSED_HALF_HEIGHT) * openness + 127) / 255;
+    const int mouth_width = FACE_ART_MOUTH_WIDTH * MOUTH_SCALES[shape].width_percent / 100;
+    const int open_height = FACE_ART_MOUTH_HEIGHT * MOUTH_SCALES[shape].height_percent / 100;
+    const int mouth_height = MOUTH_CLOSED_HEIGHT + ((open_height - MOUTH_CLOSED_HEIGHT) * openness + 127) / 255;
     int y = 0;
     while (y < UVC_FRAME_HEIGHT) {
+        uint8_t *pixel = frame + y * UVC_FRAME_WIDTH * 2;
         int x = 0;
         while (x < UVC_FRAME_WIDTH) {
-            /* YUYV: two pixels share one chroma pair, taken from the left pixel */
-            const YuvColor left = colorAt(x, y, mouth_half_width, mouth_half_height);
-            const YuvColor right = colorAt(x + 1, y, mouth_half_width, mouth_half_height);
-            uint8_t *pair = frame + (y * UVC_FRAME_WIDTH + x) * 2;
-            pair[0] = left.luma;
-            pair[1] = left.blue;
-            pair[2] = right.luma;
-            pair[3] = left.red;
-            x += 2;
+            pixel[0] = lumaAt(x, y, mouth_width, mouth_height);
+            pixel[1] = CHROMA_NEUTRAL;
+            pixel += 2;
+            x++;
         }
         y++;
     }
