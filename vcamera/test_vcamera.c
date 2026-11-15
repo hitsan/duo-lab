@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include "adc_sample.h"
 #include "lipsync.h"
 #include "mic.h"
 #include "uvc_control.h"
@@ -286,8 +287,49 @@ static void testMouthFrameIsSolidYuyvBrighterWhenOpen(void)
     assert(open[UVC_FRAME_BYTES - 2] == open[0]);
 }
 
+static void testAdcAtBiasIsSilence(void)
+{
+    AdcBias bias;
+    StartAdcBias(&bias, 1500);
+    assert(ConvertAdcSample(&bias, 1500) == 0);
+}
+
+static void testAdcAboveBiasIsScaledTo16bit(void)
+{
+    AdcBias bias;
+    StartAdcBias(&bias, 1500);
+    assert(ConvertAdcSample(&bias, 1600) == 1600);
+    StartAdcBias(&bias, 1500);
+    assert(ConvertAdcSample(&bias, 1400) == -1600);
+}
+
+static void testAdcBiasFollowsDrift(void)
+{
+    AdcBias bias;
+    StartAdcBias(&bias, 1500);
+    int count = 0;
+    while (count < 8000) {
+        ConvertAdcSample(&bias, 1550);
+        count++;
+    }
+    assert(ConvertAdcSample(&bias, 1550) == 0);
+}
+
+static void testAdcClampsToInt16(void)
+{
+    AdcBias bias;
+    StartAdcBias(&bias, 0);
+    assert(ConvertAdcSample(&bias, 4095) == 32767);
+    StartAdcBias(&bias, 4095);
+    assert(ConvertAdcSample(&bias, 0) == -32768);
+}
+
 int main(void)
 {
+    testAdcAtBiasIsSilence();
+    testAdcAboveBiasIsScaledTo16bit();
+    testAdcBiasFollowsDrift();
+    testAdcClampsToInt16();
     testMicReadsSamplesThenWraps();
     testMicRejectsRateNotMultipleOf8k();
     testPlayerReadsSamplesThenWraps();
