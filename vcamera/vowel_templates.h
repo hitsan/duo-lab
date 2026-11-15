@@ -3,7 +3,13 @@
 
 #include "vowel.h"
 
-/* Replace with the output of vcamera-calibrate. All zero always picks A */
-static const VowelFeature VOWEL_TEMPLATES[VOWEL_COUNT] = {{{0}}};
+/* Written by vcamera-calibrate */
+static const VowelFeature VOWEL_TEMPLATES[VOWEL_COUNT] = {
+    {{1.481f, 0.810f, 1.098f, 0.782f, 0.542f, 0.751f, -0.668f, -0.969f, -0.996f, -0.952f, -0.850f, -0.642f, -0.387f}},  /* a */
+    {{2.021f, 1.133f, 0.190f, -0.209f, -0.237f, -0.476f, -0.604f, -0.666f, -0.563f, -0.303f, -0.072f, -0.014f, -0.199f}},  /* i */
+    {{2.048f, 1.460f, 0.580f, -0.144f, -0.248f, -0.509f, -0.468f, -0.500f, -0.614f, -0.501f, -0.425f, -0.373f, -0.306f}},  /* u */
+    {{1.568f, 1.343f, 1.604f, -0.220f, -0.598f, -0.794f, -0.923f, -0.433f, 0.123f, -0.357f, -0.156f, -0.670f, -0.487f}},  /* e */
+    {{1.689f, 1.534f, 1.917f, 0.527f, 0.575f, -0.583f, -1.007f, -0.981f, -0.954f, -0.833f, -0.732f, -0.619f, -0.533f}},  /* o */
+};
 
 #endif
