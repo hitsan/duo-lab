@@ -276,15 +276,65 @@ static void testRequestsOutsideStreamingInterfaceStall(void)
     assert(response.length < 0);
 }
 
-static void testMouthFrameIsSolidYuyvBrighterWhenOpen(void)
+static uint8_t lumaAt(const uint8_t *frame, int x, int y)
 {
-    static uint8_t closed[UVC_FRAME_BYTES];
-    static uint8_t open[UVC_FRAME_BYTES];
-    FillMouthFrame(closed, 0, 5);
-    FillMouthFrame(open, 4, 5);
-    assert(closed[0] < open[0]);
-    assert(closed[1] == 128 && closed[3] == 128);       /* neutral chroma */
-    assert(open[UVC_FRAME_BYTES - 2] == open[0]);
+    return frame[(y * UVC_FRAME_WIDTH + x) * 2];
+}
+
+static int countPixelsLike(const uint8_t *frame, uint8_t luma)
+{
+    int count = 0;
+    int pixel = 0;
+    while (pixel < UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT) {
+        if (frame[pixel * 2] == luma) {
+            count++;
+        }
+        pixel++;
+    }
+    return count;
+}
+
+static uint8_t closed_frame[UVC_FRAME_BYTES];
+static uint8_t half_frame[UVC_FRAME_BYTES];
+static uint8_t open_frame[UVC_FRAME_BYTES];
+
+static void fillTestFrames(void)
+{
+    FillMouthFrame(closed_frame, 0, 5);
+    FillMouthFrame(half_frame, 2, 5);
+    FillMouthFrame(open_frame, 4, 5);
+}
+
+static void testFaceSitsOnBackground(void)
+{
+    fillTestFrames();
+    assert(lumaAt(open_frame, 0, 0) != lumaAt(open_frame, 160, 60));    /* corner vs forehead */
+}
+
+static void testEyesDifferFromFace(void)
+{
+    fillTestFrames();
+    assert(lumaAt(open_frame, 125, 95) != lumaAt(open_frame, 160, 60));
+    assert(lumaAt(open_frame, 195, 95) == lumaAt(open_frame, 125, 95));
+}
+
+static void testMouthOpensUpwardFromItsCenter(void)
+{
+    fillTestFrames();
+    const uint8_t mouth = lumaAt(open_frame, 160, 160);
+    const uint8_t face = lumaAt(open_frame, 160, 60);
+    assert(mouth != face);
+    assert(lumaAt(open_frame, 160, 145) == mouth);
+    assert(lumaAt(closed_frame, 160, 160) == mouth);   /* closed is a thin line */
+    assert(lumaAt(closed_frame, 160, 145) == face);
+}
+
+static void testMouthGrowsWithShape(void)
+{
+    fillTestFrames();
+    const uint8_t mouth = lumaAt(open_frame, 160, 160);
+    assert(countPixelsLike(closed_frame, mouth) < countPixelsLike(half_frame, mouth));
+    assert(countPixelsLike(half_frame, mouth) < countPixelsLike(open_frame, mouth));
 }
 
 static void testAdcAtBiasIsSilence(void)
@@ -350,7 +400,10 @@ int main(void)
     testProbeSetCurAcceptsData();
     testProbeShortRequestIsTruncated();
     testRequestsOutsideStreamingInterfaceStall();
-    testMouthFrameIsSolidYuyvBrighterWhenOpen();
+    testFaceSitsOnBackground();
+    testEyesDifferFromFace();
+    testMouthOpensUpwardFromItsCenter();
+    testMouthGrowsWithShape();
     puts("ok");
     return 0;
 }

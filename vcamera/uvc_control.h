@@ -24,7 +24,7 @@ typedef struct {
 } UvcResponse;
 
 void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcResponse *response);
-/* Solid YUYV frame, darker when closed. Stands in for the mouth images */
+/* YUYV face whose mouth opens from a line (shape 0) to a wide ellipse (shape_count - 1) */
 void FillMouthFrame(uint8_t *frame, int shape, int shape_count);
 
 #endif
