@@ -24,7 +24,7 @@ typedef struct {
 } UvcResponse;
 
 void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcResponse *response);
-/* YUYV face whose mouth opens from a line (shape 0) to a wide ellipse (shape_count - 1) */
-void FillMouthFrame(uint8_t *frame, int shape, int shape_count);
+/* YUYV face whose mouth opens from a line (openness 0) to a wide ellipse (255) */
+void FillMouthFrame(uint8_t *frame, uint8_t openness);
 
 #endif

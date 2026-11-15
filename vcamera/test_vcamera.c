@@ -300,9 +300,9 @@ static uint8_t open_frame[UVC_FRAME_BYTES];
 
 static void fillTestFrames(void)
 {
-    FillMouthFrame(closed_frame, 0, 5);
-    FillMouthFrame(half_frame, 2, 5);
-    FillMouthFrame(open_frame, 4, 5);
+    FillMouthFrame(closed_frame, 0);
+    FillMouthFrame(half_frame, 128);
+    FillMouthFrame(open_frame, 255);
 }
 
 static void testFaceSitsOnBackground(void)
@@ -329,7 +329,7 @@ static void testMouthOpensUpwardFromItsCenter(void)
     assert(lumaAt(closed_frame, 160, 145) == face);
 }
 
-static void testMouthGrowsWithShape(void)
+static void testMouthGrowsWithOpenness(void)
 {
     fillTestFrames();
     const uint8_t mouth = lumaAt(open_frame, 160, 160);
@@ -403,7 +403,7 @@ int main(void)
     testFaceSitsOnBackground();
     testEyesDifferFromFace();
     testMouthOpensUpwardFromItsCenter();
-    testMouthGrowsWithShape();
+    testMouthGrowsWithOpenness();
     puts("ok");
     return 0;
 }

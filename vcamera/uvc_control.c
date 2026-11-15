@@ -115,10 +115,10 @@ static YuvColor colorAt(int x, int y, int mouth_half_height)
     return BACKGROUND;
 }
 
-void FillMouthFrame(uint8_t *frame, int shape, int shape_count)
+void FillMouthFrame(uint8_t *frame, uint8_t openness)
 {
     const int mouth_half_height = MOUTH_CLOSED_HALF_HEIGHT
-        + (MOUTH_OPEN_HALF_HEIGHT - MOUTH_CLOSED_HALF_HEIGHT) * shape / (shape_count - 1);
+        + ((MOUTH_OPEN_HALF_HEIGHT - MOUTH_CLOSED_HALF_HEIGHT) * openness + 127) / 255;
     int y = 0;
     while (y < UVC_FRAME_HEIGHT) {
         int x = 0;

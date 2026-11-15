@@ -20,18 +20,16 @@
 /* Created by usb-uvc-ncm.sh */
 #define STREAMING_INTERFACE_PATH "/tmp/usb/usb_gadget/cvitek/functions/uvc.usb1/streaming/bInterfaceNumber"
 #define BUFFER_COUNT 4
-#define MOUTH_SHAPES 5
 
 typedef struct {
     int video;
     int streaming_interface;
     bool streaming;
     void *buffers[BUFFER_COUNT];
-    int shape;
+    uint8_t openness;
 } Camera;
 
 static Camera camera = {.video = -1};
-static uint8_t frames[MOUTH_SHAPES][UVC_FRAME_BYTES];
 
 static bool readStreamingInterface(void)
 {
@@ -66,11 +64,6 @@ static bool openCamera(void)
         }
         index++;
     }
-    int shape = 0;
-    while (shape < MOUTH_SHAPES) {
-        FillMouthFrame(frames[shape], shape, MOUTH_SHAPES);
-        shape++;
-    }
     return true;
 }
 
@@ -94,7 +87,7 @@ static void answerSetup(const struct usb_ctrlrequest *control_request)
 
 static bool queueFrame(unsigned int index)
 {
-    memcpy(camera.buffers[index], frames[camera.shape], UVC_FRAME_BYTES);
+    FillMouthFrame(camera.buffers[index], camera.openness);
     struct v4l2_buffer buffer = {
         .type = V4L2_BUF_TYPE_VIDEO_OUTPUT,
         .memory = V4L2_MEMORY_MMAP,
@@ -214,7 +207,7 @@ void ShowMouth(uint8_t openness)
     if (camera.video < 0 && !openCamera()) {
         exit(1);
     }
-    camera.shape = SelectMouthShape(openness, MOUTH_SHAPES);
+    camera.openness = openness;
     handleEvents();
     if (camera.streaming) {
         refillBuffers();
