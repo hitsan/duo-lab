@@ -498,7 +498,7 @@ static void feedSyntheticFrame(VowelTracker *tracker, int vowel, bool voiced, co
     synthesizeVowel(frame, 120.0f, FORMANTS[vowel][0], FORMANTS[vowel][1], 3000.0f);
     int n = 0;
     while (n < count) {
-        *completed = TrackVowel(tracker, frame[n], voiced, templates);
+        *completed = TrackVowel(tracker, frame[n % VOWEL_FRAME_SAMPLES], voiced, templates);
         n++;
     }
 }
@@ -512,7 +512,31 @@ static void testTrackerUpdatesShapeOncePerFrame(void)
     feedSyntheticFrame(&tracker, VOWEL_I, true, templates, VOWEL_FRAME_SAMPLES - 1, &completed);
     assert(!completed && tracker.shape == MOUTH_A);
     feedSyntheticFrame(&tracker, VOWEL_I, true, templates, 1, &completed);
-    assert(completed && tracker.shape == MOUTH_I);
+    assert(completed);
+}
+
+static void testTrackerSwitchesWithinFourFrames(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    learnSyntheticTemplates(templates);
+    VowelTracker tracker = {.shape = MOUTH_U};
+    bool completed;
+    feedSyntheticFrame(&tracker, VOWEL_U, true, templates, VOWEL_FRAME_SAMPLES * 4, &completed);
+    feedSyntheticFrame(&tracker, VOWEL_I, true, templates, VOWEL_FRAME_SAMPLES * 4, &completed);
+    assert(tracker.shape == MOUTH_I);
+}
+
+static void testTrackerIgnoresOneStrayFrame(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    learnSyntheticTemplates(templates);
+    VowelTracker tracker = {.shape = MOUTH_U};
+    bool completed;
+    feedSyntheticFrame(&tracker, VOWEL_U, true, templates, VOWEL_FRAME_SAMPLES * 4, &completed);
+    feedSyntheticFrame(&tracker, VOWEL_I, true, templates, VOWEL_FRAME_SAMPLES, &completed);
+    assert(tracker.shape == MOUTH_U);
+    feedSyntheticFrame(&tracker, VOWEL_U, true, templates, VOWEL_FRAME_SAMPLES, &completed);
+    assert(tracker.shape == MOUTH_U);
 }
 
 static void testTrackerKeepsShapeWhenSilent(void)
@@ -541,6 +565,8 @@ int main(void)
 {
     testMouthShapeChangesWidth();
     testTrackerUpdatesShapeOncePerFrame();
+    testTrackerSwitchesWithinFourFrames();
+    testTrackerIgnoresOneStrayFrame();
     testTrackerKeepsShapeWhenSilent();
     testVowelFeaturePeaksAtToneBand();
     testVowelFeatureIgnoresLoudness();

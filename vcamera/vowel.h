@@ -41,6 +41,8 @@ typedef struct {
     int16_t frame[VOWEL_FRAME_SAMPLES];
     int filled;
     VowelFeature feature;   /* of the last full frame */
+    VowelFeature smoothed;  /* voiced frames only */
+    bool smoothing;
     MouthShape shape;       /* kept through silence so the mouth closes in the last shape */
 } VowelTracker;
 

@@ -4,6 +4,10 @@
 #include "vowel.h"
 
 #define PI 3.14159265f
+/* Per voiced frame, about 100ms to settle */
+#define SMOOTHING 0.3f
+/* Switch shape only when another is clearly nearer (squared distances) */
+#define SWITCH_RATIO 0.7f
 #define HALF (VOWEL_FRAME_SAMPLES / 2)
 
 /* Narrow where F1 lives, wider toward F2 and above */
@@ -117,19 +121,25 @@ void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature)
     }
 }
 
+static float distanceSquared(const VowelFeature *a, const VowelFeature *b)
+{
+    float distance = 0.0f;
+    int band = 0;
+    while (band < VOWEL_BANDS) {
+        const float difference = a->bands[band] - b->bands[band];
+        distance += difference * difference;
+        band++;
+    }
+    return distance;
+}
+
 Vowel ClassifyVowel(const VowelFeature *feature, const VowelFeature templates[VOWEL_COUNT])
 {
     Vowel nearest = VOWEL_A;
     float nearest_distance = INFINITY;
     int vowel = 0;
     while (vowel < VOWEL_COUNT) {
-        float distance = 0.0f;
-        int band = 0;
-        while (band < VOWEL_BANDS) {
-            const float difference = feature->bands[band] - templates[vowel].bands[band];
-            distance += difference * difference;
-            band++;
-        }
+        const float distance = distanceSquared(feature, &templates[vowel]);
         if (distance < nearest_distance) {
             nearest_distance = distance;
             nearest = (Vowel)vowel;
@@ -151,6 +161,41 @@ MouthShape SelectMouthShapeOfVowel(Vowel vowel)
     return SHAPES[vowel];
 }
 
+static void smoothFeature(VowelTracker *tracker)
+{
+    int band = 0;
+    while (band < VOWEL_BANDS) {
+        const float target = tracker->feature.bands[band];
+        float *smoothed = &tracker->smoothed.bands[band];
+        *smoothed = tracker->smoothing ? *smoothed + SMOOTHING * (target - *smoothed) : target;
+        band++;
+    }
+    tracker->smoothing = true;
+}
+
+static MouthShape chooseShape(const VowelTracker *tracker, const VowelFeature templates[VOWEL_COUNT])
+{
+    float shape_distances[MOUTH_SHAPE_COUNT] = {INFINITY, INFINITY, INFINITY};
+    int vowel = 0;
+    while (vowel < VOWEL_COUNT) {
+        const MouthShape shape = SelectMouthShapeOfVowel((Vowel)vowel);
+        const float distance = distanceSquared(&tracker->smoothed, &templates[vowel]);
+        if (distance < shape_distances[shape]) {
+            shape_distances[shape] = distance;
+        }
+        vowel++;
+    }
+    MouthShape best = tracker->shape;
+    int shape = 0;
+    while (shape < MOUTH_SHAPE_COUNT) {
+        if (shape_distances[shape] < shape_distances[best]) {
+            best = (MouthShape)shape;
+        }
+        shape++;
+    }
+    return shape_distances[best] < SWITCH_RATIO * shape_distances[tracker->shape] ? best : tracker->shape;
+}
+
 bool TrackVowel(VowelTracker *tracker, int16_t sample, bool voiced, const VowelFeature templates[VOWEL_COUNT])
 {
     tracker->frame[tracker->filled] = sample;
@@ -161,7 +206,8 @@ bool TrackVowel(VowelTracker *tracker, int16_t sample, bool voiced, const VowelF
     tracker->filled = 0;
     ExtractVowelFeature(tracker->frame, &tracker->feature);
     if (voiced) {
-        tracker->shape = SelectMouthShapeOfVowel(ClassifyVowel(&tracker->feature, templates));
+        smoothFeature(tracker);
+        tracker->shape = chooseShape(tracker, templates);
     }
     return true;
 }
