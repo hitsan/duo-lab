@@ -6,7 +6,8 @@
 
 /* 32ms at 8kHz */
 #define VOWEL_FRAME_SAMPLES 256
-#define VOWEL_BANDS 13
+/* Up to 2.5kHz: above that, normal-volume speech sinks into the mic noise */
+#define VOWEL_BANDS 10
 
 typedef enum {
     VOWEL_A,
@@ -31,6 +32,10 @@ typedef struct {
     float bands[VOWEL_BANDS];
 } VowelFeature;
 
+/* Linear energy per band */
+void MeasureVowelBands(const int16_t *frame, float energies[VOWEL_BANDS]);
+/* noise: energies measured in silence, subtracted before the logs. NULL for none */
+void MakeVowelFeature(const float energies[VOWEL_BANDS], const float *noise, VowelFeature *feature);
 void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature);
 /* The vowel whose template is nearest */
 Vowel ClassifyVowel(const VowelFeature *feature, const VowelFeature templates[VOWEL_COUNT]);
@@ -41,7 +46,10 @@ typedef struct {
     int16_t frame[VOWEL_FRAME_SAMPLES];
     int filled;
     VowelFeature feature;   /* of the last full frame */
-    VowelFeature smoothed;  /* voiced frames only */
+    float voice[VOWEL_BANDS];  /* band energies averaged over voiced frames */
+    VowelFeature smoothed;     /* of voice */
+    float noise[VOWEL_BANDS];  /* band energies averaged over silent frames */
+    bool noise_learned;
     bool smoothing;
     MouthShape shape;       /* kept through silence so the mouth closes in the last shape */
 } VowelTracker;

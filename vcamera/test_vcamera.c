@@ -561,8 +561,82 @@ static void testMouthShapeChangesWidth(void)
     assert(lumaAt(open_frame, 185, 160) == mouth && lumaAt(rounded, 185, 160) != mouth);
 }
 
+/* Deterministic white noise */
+static int16_t nextNoise(uint32_t *state, int amplitude)
+{
+    *state = *state * 1664525u + 1013904223u;
+    return (int16_t)((int)(*state >> 16) % (2 * amplitude + 1) - amplitude);
+}
+
+#define ROOM_NOISE 600
+
+static void feedSilence(VowelTracker *tracker, const VowelFeature templates[VOWEL_COUNT], uint32_t *state)
+{
+    int n = 0;
+    while (n < VOWEL_FRAME_SAMPLES * 40) {
+        TrackVowel(tracker, nextNoise(state, ROOM_NOISE), false, templates);
+        n++;
+    }
+}
+
+/* Like vcamera-calibrate: loud vowels in room noise, averaged over the tracker's features */
+static void calibrateInNoise(VowelFeature templates[VOWEL_COUNT])
+{
+    static const VowelFeature none[VOWEL_COUNT];
+    uint32_t state = 7;
+    int vowel = 0;
+    while (vowel < VOWEL_COUNT) {
+        VowelTracker tracker = {.shape = MOUTH_A};
+        feedSilence(&tracker, none, &state);
+        int16_t voice[VOWEL_FRAME_SAMPLES];
+        synthesizeVowel(voice, 120.0f, FORMANTS[vowel][0], FORMANTS[vowel][1], 4000.0f);
+        VowelFeature sum = {{0}};
+        int frame = 0;
+        while (frame < 10) {
+            int n = 0;
+            while (n < VOWEL_FRAME_SAMPLES) {
+                TrackVowel(&tracker, voice[n] + nextNoise(&state, ROOM_NOISE), true, none);
+                n++;
+            }
+            int band = 0;
+            while (band < VOWEL_BANDS) {
+                sum.bands[band] += tracker.feature.bands[band] / 10.0f;
+                band++;
+            }
+            frame++;
+        }
+        templates[vowel] = sum;
+        vowel++;
+    }
+}
+
+static MouthShape trackNormalVoice(const VowelFeature templates[VOWEL_COUNT], int vowel, MouthShape start)
+{
+    VowelTracker tracker = {.shape = start};
+    uint32_t state = 1;
+    feedSilence(&tracker, templates, &state);
+    int16_t voice[VOWEL_FRAME_SAMPLES];
+    synthesizeVowel(voice, 140.0f, FORMANTS[vowel][0], FORMANTS[vowel][1], 1350.0f);
+    int n = 0;
+    while (n < VOWEL_FRAME_SAMPLES * 10) {
+        TrackVowel(&tracker, voice[n % VOWEL_FRAME_SAMPLES] + nextNoise(&state, ROOM_NOISE), true, templates);
+        n++;
+    }
+    return tracker.shape;
+}
+
+/* Registered loud, spoken at a third of that: the high bands drown in noise and U looked like I */
+static void testTrackerKeepsUAndIApartAtNormalVolume(void)
+{
+    VowelFeature templates[VOWEL_COUNT];
+    calibrateInNoise(templates);
+    assert(trackNormalVoice(templates, VOWEL_U, MOUTH_I) == MOUTH_U);
+    assert(trackNormalVoice(templates, VOWEL_I, MOUTH_U) == MOUTH_I);
+}
+
 int main(void)
 {
+    testTrackerKeepsUAndIApartAtNormalVolume();
     testMouthShapeChangesWidth();
     testTrackerUpdatesShapeOncePerFrame();
     testTrackerSwitchesWithinFourFrames();

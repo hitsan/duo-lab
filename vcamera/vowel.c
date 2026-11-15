@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "mic.h"
 #include "vowel.h"
 
@@ -8,11 +9,15 @@
 #define SMOOTHING 0.3f
 /* Switch shape only when another is clearly nearer (squared distances) */
 #define SWITCH_RATIO 0.7f
+/* Per silent frame, about 1s to learn the noise */
+#define NOISE_LEARNING 0.03f
+/* Keep this much of the noise after subtraction so near-empty bands stay finite and steady */
+#define NOISE_FLOOR 0.1f
 #define HALF (VOWEL_FRAME_SAMPLES / 2)
 
 /* Narrow where F1 lives, wider toward F2 and above */
 static const float BAND_EDGES_HZ[VOWEL_BANDS + 1] = {
-    150, 300, 450, 600, 800, 1000, 1250, 1500, 1800, 2100, 2500, 3000, 3500, 4000,
+    150, 300, 450, 600, 800, 1000, 1250, 1500, 1800, 2100, 2500,
 };
 
 static float window[VOWEL_FRAME_SAMPLES];
@@ -83,7 +88,7 @@ static void transform(float *real, float *imaginary)
     }
 }
 
-void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature)
+void MeasureVowelBands(const int16_t *frame, float energies[VOWEL_BANDS])
 {
     if (!tables_ready) {
         prepareTables();
@@ -99,17 +104,29 @@ void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature)
     transform(real, imaginary);
 
     const float hz_per_bin = (float)MIC_SAMPLE_RATE / VOWEL_FRAME_SAMPLES;
-    float mean = 0.0f;
     int band = 0;
     while (band < VOWEL_BANDS) {
         int bin = (int)(BAND_EDGES_HZ[band] / hz_per_bin);
         const int end = (int)(BAND_EDGES_HZ[band + 1] / hz_per_bin);
-        float energy = 1.0f;  /* floor so an empty band stays finite */
+        float energy = 0.0f;
         while (bin < end && bin <= HALF) {
             energy += real[bin] * real[bin] + imaginary[bin] * imaginary[bin];
             bin++;
         }
-        feature->bands[band] = log10f(energy);
+        energies[band] = energy;
+        band++;
+    }
+}
+
+void MakeVowelFeature(const float energies[VOWEL_BANDS], const float *noise, VowelFeature *feature)
+{
+    float mean = 0.0f;
+    int band = 0;
+    while (band < VOWEL_BANDS) {
+        const float noise_energy = noise != NULL ? noise[band] : 0.0f;
+        const float floor = NOISE_FLOOR * noise_energy + 1.0f;  /* +1 so an empty band stays finite */
+        const float voice_energy = energies[band] - noise_energy;
+        feature->bands[band] = log10f(voice_energy > floor ? voice_energy : floor);
         mean += feature->bands[band];
         band++;
     }
@@ -119,6 +136,13 @@ void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature)
         feature->bands[band] -= mean;
         band++;
     }
+}
+
+void ExtractVowelFeature(const int16_t *frame, VowelFeature *feature)
+{
+    float energies[VOWEL_BANDS];
+    MeasureVowelBands(frame, energies);
+    MakeVowelFeature(energies, NULL, feature);
 }
 
 static float distanceSquared(const VowelFeature *a, const VowelFeature *b)
@@ -161,19 +185,21 @@ MouthShape SelectMouthShapeOfVowel(Vowel vowel)
     return SHAPES[vowel];
 }
 
-static void smoothFeature(VowelTracker *tracker)
+/* Averaging energies, not logs, shrinks the noise before it is subtracted */
+static void smoothEnergies(VowelTracker *tracker, const float energies[VOWEL_BANDS])
 {
     int band = 0;
     while (band < VOWEL_BANDS) {
-        const float target = tracker->feature.bands[band];
-        float *smoothed = &tracker->smoothed.bands[band];
-        *smoothed = tracker->smoothing ? *smoothed + SMOOTHING * (target - *smoothed) : target;
+        float *voice = &tracker->voice[band];
+        *voice = tracker->smoothing ? *voice + SMOOTHING * (energies[band] - *voice) : energies[band];
         band++;
     }
     tracker->smoothing = true;
+    MakeVowelFeature(tracker->voice, tracker->noise, &tracker->smoothed);
 }
 
-static MouthShape chooseShape(const VowelTracker *tracker, const VowelFeature templates[VOWEL_COUNT])
+/* sticky: within an utterance, switch only when another shape is clearly nearer */
+static MouthShape chooseShape(const VowelTracker *tracker, const VowelFeature templates[VOWEL_COUNT], bool sticky)
 {
     float shape_distances[MOUTH_SHAPE_COUNT] = {INFINITY, INFINITY, INFINITY};
     int vowel = 0;
@@ -193,6 +219,9 @@ static MouthShape chooseShape(const VowelTracker *tracker, const VowelFeature te
         }
         shape++;
     }
+    if (!sticky) {
+        return best;
+    }
     return shape_distances[best] < SWITCH_RATIO * shape_distances[tracker->shape] ? best : tracker->shape;
 }
 
@@ -204,10 +233,24 @@ bool TrackVowel(VowelTracker *tracker, int16_t sample, bool voiced, const VowelF
         return false;
     }
     tracker->filled = 0;
-    ExtractVowelFeature(tracker->frame, &tracker->feature);
+    float energies[VOWEL_BANDS];
+    MeasureVowelBands(tracker->frame, energies);
+    if (!voiced) {
+        /* A new utterance starts fresh: no averaging with, or sticking to, the last one */
+        tracker->smoothing = false;
+        int band = 0;
+        while (band < VOWEL_BANDS) {
+            float *noise = &tracker->noise[band];
+            *noise = tracker->noise_learned ? *noise + NOISE_LEARNING * (energies[band] - *noise) : energies[band];
+            band++;
+        }
+        tracker->noise_learned = true;
+    }
+    MakeVowelFeature(energies, tracker->noise, &tracker->feature);
     if (voiced) {
-        smoothFeature(tracker);
-        tracker->shape = chooseShape(tracker, templates);
+        const bool continuing = tracker->smoothing;
+        smoothEnergies(tracker, energies);
+        tracker->shape = chooseShape(tracker, templates, continuing);
     }
     return true;
 }
