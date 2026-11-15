@@ -5,29 +5,27 @@
  
  _end = .;
 +/* vcamera: the last page holds the openness shared with Linux */
-+ASSERT(_end <= 0x83FFF000, "image overlaps the vcamera shared page at 0x83FFF000; embed a shorter WAV")
++ASSERT(_end <= 0x83FFF000, "image overlaps the vcamera shared page at 0x83FFF000; shrink the firmware")
  }
  
 --- a/freertos/cvitek/task/comm/CMakeLists.txt
 +++ b/freertos/cvitek/task/comm/CMakeLists.txt
-@@ -1,6 +1,22 @@
+@@ -1,6 +1,20 @@
  file(GLOB _SOURCES "src/${RUN_ARCH}/*.c")
  
  include_directories(include)
 +
-+# vcamera: VCAMERA_DIR is duo-lab/vcamera, VCAMERA_WAV the absolute path of the WAV to embed
-+if (NOT DEFINED ENV{VCAMERA_DIR} OR NOT DEFINED ENV{VCAMERA_WAV})
-+	message(FATAL_ERROR "export VCAMERA_DIR and VCAMERA_WAV")
++# vcamera: VCAMERA_DIR is duo-lab/vcamera
++if (NOT DEFINED ENV{VCAMERA_DIR})
++	message(FATAL_ERROR "export VCAMERA_DIR")
 +endif()
 +set(VCAMERA_DIR $ENV{VCAMERA_DIR})
 +list(APPEND _SOURCES
++	${VCAMERA_DIR}/adc_sample.c
 +	${VCAMERA_DIR}/lipsync.c
-+	${VCAMERA_DIR}/wav.c
 +	${VCAMERA_DIR}/rtos/display_shared.c
-+	${VCAMERA_DIR}/rtos/mic_embedded_wav.c
-+	${VCAMERA_DIR}/rtos/vcamera_task.c
-+	${VCAMERA_DIR}/rtos/embedded_wav.S)
-+set_source_files_properties(${VCAMERA_DIR}/rtos/embedded_wav.S PROPERTIES COMPILE_DEFINITIONS "VCAMERA_WAV=\"$ENV{VCAMERA_WAV}\"")
++	${VCAMERA_DIR}/rtos/mic_adc.c
++	${VCAMERA_DIR}/rtos/vcamera_task.c)
 +include_directories(${VCAMERA_DIR})
 +
  if (BOARD MATCHES "milkv-duos")

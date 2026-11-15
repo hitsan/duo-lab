@@ -12,25 +12,24 @@ WAV は 16bit PCM で、fs は 8kHz の整数倍にする。8kHz に間引き、
 
 パラメータは `lipsync.c` の `RISE_MS` `FALL_MS` と `lipsync.h` の `CLOSED_DB` `FULL_OPEN_DB` で決める。
 
-## Duo の小コアで動かす (マイクなし)
+## Duo の小コアで動かす
 
-小コア (FreeRTOS) がファームに埋め込んだ WAV を 8kHz の実時間で読んで口の開きを計算し、共有メモリ `0x83FFF000` (uint32、下位 8bit) に書く。
+小コア (FreeRTOS) が GP26 のマイク (MAX9814, GAIN=VDD で 40dB) を SARADC で 8kHz で読んで口の開きを計算し、共有メモリ `0x83FFF000` (uint32、下位 8bit) に書く。
 Linux 側の `vcamera-reader` がそれを 30fps で読んでターミナルに描く。
-マイクをつないだときに、おかしいのが ADC 側かそれ以降かを切り分けるためのモック。
 
 | ファイル | 役割 |
 |---|---|
-| `rtos/mic_embedded_wav.c` | `mic.h` の実装。埋め込み WAV を tick ごとに 40 サンプルずつ返し、末尾で先頭に戻る |
-| `rtos/embedded_wav.S` | `.incbin` で WAV を埋め込む |
+| `adc_sample.c` | ADC の生値 (約 1500 のバイアス付き 12bit) から、バイアスを追って引いた 16bit サンプルにする |
+| `rtos/mic_adc.c` | `mic.h` の実装。SARADC ch1 (GP26) を 8kHz で読む。サンプル間は `rdtime` で待つ |
 | `rtos/display_shared.c` | `display.h` の実装。共有メモリに書いて `clean_dcache_range` する |
 | `rtos/vcamera_task.c` | `main.c` と同じループを回す FreeRTOS タスク |
 | `sdk/rtos.patch` | duo-buildroot-sdk の FreeRTOS に上をビルドに入れ、タスクを作る。イメージが共有ページに重なればリンクで落とす |
 | `reader.c` | Linux 側。`/dev/mem` を mmap して 30fps で `ShowMouth` を呼ぶ |
 
-WAV は 16bit PCM。ファームの空きは約 70KB なので、8kHz mono で 4 秒程度まで。
+GP26 は Duo の基板上で 10k/10k に分圧されて SoC の ADC1 (1.8V 系) に入る。ピンで約 3.6V までが範囲で、マイクの 1.23V バイアス出力を直結してよい。
 
 ```sh
-./build.sh image voice.wav                   # SD イメージを作る。duo-buildroot-sdk/out/ にできる
+./build.sh image                             # SD イメージを作る。duo-buildroot-sdk/out/ にできる
 
 make reader                                  # source duo-examples/envsetup.sh 済みで
 scp vcamera-reader root@192.168.42.1:
@@ -51,5 +50,5 @@ SDK はリポジトリ直下の `duo-buildroot-sdk/` (submodule) を使う。SDK
 
 ```sh
 ./build.sh kernel                            # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
-./build.sh image voice.wav                   # SD イメージ全体
+./build.sh image                             # SD イメージ全体
 ```

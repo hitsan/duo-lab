@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: ./build.sh kernel       -> boot.sd with the vcamera kernel config
-#        ./build.sh image WAV    -> full SD image with the small-core mock playing WAV
+#        ./build.sh image        -> full SD image with the small core reading the mic
 
 VCAMERA_DIR=$(cd "$(dirname "$0")" && pwd)
 REPOSITORY_DIR=$(dirname "$VCAMERA_DIR")
@@ -48,12 +48,7 @@ buildKernel()
 
 buildImage()
 {
-    [ -f "$1" ] || fail "no WAV: $1"
     export VCAMERA_DIR
-    VCAMERA_WAV=$(realpath "$1")
-    export VCAMERA_WAV
-    # .incbin is not tracked as a dependency, so a changed WAV would be ignored
-    rm -rf "$SDK_DIR/freertos/cvitek/build"
     cd "$SDK_DIR" && ./build.sh "$BOARD" || fail "image build failed"
 }
 
@@ -63,11 +58,10 @@ case "$1" in
         buildKernel
         ;;
     image)
-        [ $# -eq 2 ] || fail "usage: $0 image WAV"
         prepareSdk
-        buildImage "$2"
+        buildImage
         ;;
     *)
-        fail "usage: $0 kernel | image WAV"
+        fail "usage: $0 kernel | image"
         ;;
 esac
