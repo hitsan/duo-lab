@@ -44,10 +44,14 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 ### 2. 顔の絵を変換する
 
 ```sh
-make face_art             # art/face.png → art/face_art.h。別の絵は ART=path。Pillow は nix から取る
+make face_art                                 # art/face.png → art/face_art.h。別の絵は ART=path。Pillow は nix から取る
+make face_art BACKGROUND=~/Pictures/room.jpg  # 背景を画像にする
+make face_art BACKGROUND=pink                 # 背景を単色にする (色名か '#rrggbb'。省略時は steelblue)
 ```
 
-`art/convert.py` が絵を 240px に縮めて 2 値化し、いちばん大きい線を輪郭、残りのうち一番下の線を口とみなして切り出す。結果は 1 bit/pixel の配列として `art/face_art.h` に書かれる (git 管理外)。
+`art/convert.py` が絵を 240px に縮めて 2 値化し、いちばん大きい線を輪郭、残りのうち一番下の線を口とみなして切り出す。輪郭とその内側が顔になり、顔の中は絵のまま (白い紙 + 線)、顔の外には背景が出る。輪郭の外にある線は消える。輪郭が閉じていないと内側を塗れず、輪郭の線だけが顔になる。
+
+背景は画像ファイルか色で、`BACKGROUND` に渡す。画像は 320x240 に収まるよう拡大縮小して、はみ出た分を切り落とす。結果はすべて `art/face_art.h` に書かれる (git 管理外)。背景を変えたら `make face_art` からやり直す。
 
 ### 3. Duo で動かす
 
@@ -115,7 +119,7 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 | `vcamera-reader` | 共有メモリ (`src/reader.c`) | `src/display_terminal.c` |
 | `vcamera-host` | `src/mic_wav.c` (stdin の WAV) | `src/display_terminal.c` |
 
-`src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。口を消した顔をそのまま描き、口だけを開き具合に応じて縦に、口の形に応じて縦横に伸縮して重ねる。閉じているときは、口の輪郭を 3 行に潰して線にする。
+`src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。背景に口を消した顔を重ねたフレームを最初に 1 回だけ作り、毎フレームそれをコピーして口だけを描く。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する。閉じているときは、口の輪郭を 3 行に潰して線にする。
 
 ### 口の動きをなめらかにする
 

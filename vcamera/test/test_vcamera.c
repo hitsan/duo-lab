@@ -339,6 +339,19 @@ static bool isInk(const uint8_t *frame, int x, int y)
     return lumaAt(frame, x, y) < 128;
 }
 
+static bool inFace(int x, int y)
+{
+    const int art_x = x - ART_LEFT;
+    return art_x >= 0 && art_x < FACE_ART_SIZE &&
+           (FACE_ART_MASK[y * (FACE_ART_SIZE / 8) + art_x / 8] & (0x80 >> (art_x % 8)));
+}
+
+/* The background outside the face may be dark too */
+static bool isMouthInk(const uint8_t *frame, int x, int y)
+{
+    return inFace(x, y) && isInk(frame, x, y) && !artInk(x - ART_LEFT, y);
+}
+
 static int countMouthInk(const uint8_t *frame)
 {
     int count = 0;
@@ -346,7 +359,7 @@ static int countMouthInk(const uint8_t *frame)
     while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
         int x = MOUTH_CENTER_X - AROUND_MOUTH;
         while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
-            count += isInk(frame, x, y) && !artInk(x - ART_LEFT, y);
+            count += isMouthInk(frame, x, y);
             x++;
         }
         y++;
@@ -362,7 +375,7 @@ static int mouthInkWidth(const uint8_t *frame)
     while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
         int x = MOUTH_CENTER_X - AROUND_MOUTH;
         while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
-            if (isInk(frame, x, y) && !artInk(x - ART_LEFT, y)) {
+            if (isMouthInk(frame, x, y)) {
                 left = x < left ? x : left;
                 right = x > right ? x : right;
             }
@@ -376,13 +389,32 @@ static int mouthInkWidth(const uint8_t *frame)
 static void testArtFaceIsCopiedOntoPaper(void)
 {
     fillTestFrames();
-    assert(!isInk(open_frame, 0, 0));
     int y = 0;
     while (y < FACE_ART_SIZE) {
         int x = 0;
         while (x < FACE_ART_SIZE) {
-            if (artInk(x, y)) {
-                assert(isInk(closed_frame, ART_LEFT + x, y));
+            const bool in_mouth = x >= FACE_ART_MOUTH_LEFT && x < FACE_ART_MOUTH_LEFT + FACE_ART_MOUTH_WIDTH &&
+                                  y >= FACE_ART_MOUTH_TOP && y < FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT;
+            if (inFace(ART_LEFT + x, y) && !in_mouth) {
+                assert(isInk(closed_frame, ART_LEFT + x, y) == artInk(x, y));
+            }
+            x++;
+        }
+        y++;
+    }
+}
+
+static void testOutsideFaceShowsBackground(void)
+{
+    fillTestFrames();
+    assert(!inFace(0, 0) && inFace(MOUTH_CENTER_X, MOUTH_CENTER_Y));
+    int y = 0;
+    while (y < UVC_FRAME_HEIGHT) {
+        int x = 0;
+        while (x < UVC_FRAME_WIDTH) {
+            const int offset = (y * UVC_FRAME_WIDTH + x) * 2;
+            if (!inFace(x, y)) {
+                assert(memcmp(closed_frame + offset, FACE_ART_BACKGROUND + offset, 2) == 0);
             }
             x++;
         }
@@ -737,6 +769,7 @@ int main(void)
     testProbeShortRequestIsTruncated();
     testRequestsOutsideStreamingInterfaceStall();
     testArtFaceIsCopiedOntoPaper();
+    testOutsideFaceShowsBackground();
     testClosedMouthIsAThinLine();
     testMouthGrowsWithOpenness();
     testMouthSizeSpansClosedLineToDrawnSize();

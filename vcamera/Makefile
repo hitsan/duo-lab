@@ -48,12 +48,19 @@ build/vcamera-calibrate: src/calibrate.c $(HEADERS) | build
 	$(check-duo)
 	$(CC) $(DUO_CFLAGS) -o $@ src/calibrate.c $(LDFLAGS)
 
-# The drawing stays out of git: put it at art/face.png or pass ART=path. Needs Pillow, taken from nix
+# The drawing stays out of git: put it at art/face.png or pass ART=path. Needs Pillow, taken from nix.
+# BACKGROUND is an image file or a color (name or '#rrggbb')
 ART ?= art/face.png
-face_art: art/face_art.h
+BACKGROUND ?= steelblue
+convert-art = nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' \
+	-c python3 art/convert.py $(ART) '$(BACKGROUND)' > art/face_art.h
+
+# Always reconverts, so a new BACKGROUND takes effect
+face_art:
+	$(convert-art)
 
 art/face_art.h: $(ART) art/convert.py
-	nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' -c python3 art/convert.py $(ART) > $@
+	$(convert-art)
 
 run: build/vcamera-host
 	$(if $(WAV),,$(error usage: make run WAV=path/to/voice.wav))

@@ -1,15 +1,21 @@
-"""Turn the black-and-white face drawing into face_art.h: the face without its mouth, and the mouth alone.
+"""Turn the black-and-white face drawing into face_art.h: the face without its mouth, the mouth alone,
+the face mask, and the background frame behind the face.
 
 Usage (Pillow from nix):
   nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' \
-      -c python3 art/convert.py art/face.png > art/face_art.h
+      -c python3 art/convert.py art/face.png [BACKGROUND] > art/face_art.h
+
+BACKGROUND is an image file (scaled and cropped to the frame) or a color name / #rrggbb. Default: steelblue
 """
+import os
 import sys
 from collections import deque
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 SIZE = 240  # fills the 240-line UVC frame
+FRAME_WIDTH = 320
+FRAME_HEIGHT = 240
 
 
 def load_ink(path):
@@ -43,6 +49,43 @@ def find_mouth(found):
     return max(others, key=lambda pixels: sum(y for _, y in pixels) / len(pixels))
 
 
+def face_mask(outline):
+    """The outline and everything it encloses: whatever the border cannot reach without crossing it"""
+    outline_ink = [[False] * SIZE for _ in range(SIZE)]
+    for x, y in outline:
+        outline_ink[y][x] = True
+    outside = [[False] * SIZE for _ in range(SIZE)]
+    queue = deque()
+    for i in range(SIZE):
+        queue.extend([(i, 0), (i, SIZE - 1), (0, i), (SIZE - 1, i)])
+    while queue:
+        x, y = queue.popleft()
+        if 0 <= x < SIZE and 0 <= y < SIZE and not outline_ink[y][x] and not outside[y][x]:
+            outside[y][x] = True
+            queue.extend([(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)])
+    return [[not outside[y][x] for x in range(SIZE)] for y in range(SIZE)]
+
+
+def background_yuyv(spec):
+    """BT.601 limited range, one U and V per pixel pair"""
+    if os.path.isfile(spec):
+        image = ImageOps.fit(Image.open(spec).convert("RGB"), (FRAME_WIDTH, FRAME_HEIGHT))
+    else:
+        image = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT), spec)
+    rows = []
+    for y in range(FRAME_HEIGHT):
+        row = []
+        for x in range(0, FRAME_WIDTH, 2):
+            pair = [image.getpixel((x, y)), image.getpixel((x + 1, y))]
+            r, g, b = [sum(channel) / 2 for channel in zip(*pair)]
+            u = 128 + (-37.797 * r - 74.203 * g + 112.0 * b) / 255
+            v = 128 + (112.0 * r - 93.786 * g - 18.214 * b) / 255
+            left, right = [round(16 + (65.481 * pr + 128.553 * pg + 24.966 * pb) / 255) for pr, pg, pb in pair]
+            row += [left, round(u), right, round(v)]
+        rows.append(row)
+    return rows
+
+
 def bitmap_rows(ink, left, top, width, height):
     """One row per line, packed MSB first"""
     rows = []
@@ -68,7 +111,9 @@ def print_array(name, rows):
 
 def main():
     ink = load_ink(sys.argv[1])
-    mouth = find_mouth(components(ink))
+    found = components(ink)
+    mouth = find_mouth(found)
+    mask = face_mask(max(found, key=len))
     xs = [x for x, _ in mouth]
     ys = [y for _, y in mouth]
     left, top = min(xs), min(ys)
@@ -90,6 +135,10 @@ def main():
     print_array("FACE_ART", bitmap_rows(ink, 0, 0, SIZE, SIZE))
     print("\n/* The open mouth alone, cut to its bounding box */")
     print_array("FACE_ART_MOUTH", bitmap_rows(mouth_ink, left, top, width, height))
+    print("\n/* The outline and everything inside it; the background shows elsewhere */")
+    print_array("FACE_ART_MASK", bitmap_rows(mask, 0, 0, SIZE, SIZE))
+    print(f"\n/* {FRAME_WIDTH}x{FRAME_HEIGHT} YUYV frame behind the face */")
+    print_array("FACE_ART_BACKGROUND", background_yuyv(sys.argv[2] if len(sys.argv) > 2 else "steelblue"))
     print("\n#endif")
 
 

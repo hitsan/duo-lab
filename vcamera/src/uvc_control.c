@@ -98,18 +98,13 @@ static bool bitAt(const uint8_t *bitmap, int stride, int x, int y)
     return (bitmap[y * stride + x / 8] & (0x80 >> (x % 8))) != 0;
 }
 
-/* The drawn mouth stretched to width x height around its own center. Squashing ORs the source rows
+/* (x, y) inside the drawn mouth stretched to size. Squashing ORs the source rows
    so the outline merges into a line instead of breaking into dots */
-static bool mouthInkAt(int x, int y, int width, int height)
+static bool mouthInkAt(int x, int y, MouthSize size)
 {
-    const int left = MOUTH_CENTER_X - width / 2;
-    const int top = MOUTH_CENTER_Y - height / 2;
-    if (x < left || x >= left + width || y < top || y >= top + height) {
-        return false;
-    }
-    const int source_x = (x - left) * FACE_ART_MOUTH_WIDTH / width;
-    int source_y = (y - top) * FACE_ART_MOUTH_HEIGHT / height;
-    const int source_end = (y - top + 1) * FACE_ART_MOUTH_HEIGHT / height;
+    const int source_x = x * FACE_ART_MOUTH_WIDTH / size.width;
+    int source_y = y * FACE_ART_MOUTH_HEIGHT / size.height;
+    const int source_end = (y + 1) * FACE_ART_MOUTH_HEIGHT / size.height;
     do {
         if (bitAt(FACE_ART_MOUTH, MOUTH_STRIDE, source_x, source_y)) {
             return true;
@@ -119,10 +114,28 @@ static bool mouthInkAt(int x, int y, int width, int height)
     return false;
 }
 
-static uint8_t lumaAt(int x, int y, MouthSize mouth)
+static void putPixel(uint8_t *frame, int x, int y, uint8_t luma)
 {
-    const bool face = x >= ART_LEFT && x < ART_LEFT + FACE_ART_SIZE && bitAt(FACE_ART, ART_STRIDE, x - ART_LEFT, y);
-    return face || mouthInkAt(x, y, mouth.width, mouth.height) ? LUMA_INK : LUMA_PAPER;
+    uint8_t *const pixel = frame + (y * UVC_FRAME_WIDTH + x) * 2;
+    pixel[0] = luma;
+    pixel[1] = CHROMA_NEUTRAL;
+}
+
+/* The face on paper over the background, without the mouth; built once */
+static void fillFaceFrame(uint8_t *frame)
+{
+    memcpy(frame, FACE_ART_BACKGROUND, UVC_FRAME_BYTES);
+    int y = 0;
+    while (y < FACE_ART_SIZE) {
+        int x = 0;
+        while (x < FACE_ART_SIZE) {
+            if (bitAt(FACE_ART_MASK, ART_STRIDE, x, y)) {
+                putPixel(frame, ART_LEFT + x, y, bitAt(FACE_ART, ART_STRIDE, x, y) ? LUMA_INK : LUMA_PAPER);
+            }
+            x++;
+        }
+        y++;
+    }
 }
 
 MouthSize CalcMouthSize(uint8_t openness, MouthShape shape)
@@ -151,16 +164,31 @@ MouthSize EaseMouthSize(MouthSize current, MouthSize target)
     return eased;
 }
 
+static int clamp(int value, int low, int high)
+{
+    return value < low ? low : value > high ? high : value;
+}
+
 void FillMouthFrame(uint8_t *frame, MouthSize size)
 {
-    int y = 0;
-    while (y < UVC_FRAME_HEIGHT) {
-        uint8_t *pixel = frame + y * UVC_FRAME_WIDTH * 2;
-        int x = 0;
-        while (x < UVC_FRAME_WIDTH) {
-            pixel[0] = lumaAt(x, y, size);
-            pixel[1] = CHROMA_NEUTRAL;
-            pixel += 2;
+    static uint8_t face_frame[UVC_FRAME_BYTES];
+    static bool face_frame_ready = false;
+    if (!face_frame_ready) {
+        fillFaceFrame(face_frame);
+        face_frame_ready = true;
+    }
+    memcpy(frame, face_frame, UVC_FRAME_BYTES);
+    const int left = MOUTH_CENTER_X - size.width / 2;
+    const int top = MOUTH_CENTER_Y - size.height / 2;
+    const int right = clamp(left + size.width, 0, UVC_FRAME_WIDTH);
+    const int bottom = clamp(top + size.height, 0, UVC_FRAME_HEIGHT);
+    int y = clamp(top, 0, UVC_FRAME_HEIGHT);
+    while (y < bottom) {
+        int x = clamp(left, 0, UVC_FRAME_WIDTH);
+        while (x < right) {
+            if (mouthInkAt(x - left, y - top, size)) {
+                putPixel(frame, x, y, LUMA_INK);
+            }
             x++;
         }
         y++;
