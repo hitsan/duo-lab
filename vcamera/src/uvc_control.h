@@ -24,8 +24,18 @@ typedef struct {
     uint8_t data[UVC_RESPONSE_CAPACITY];
 } UvcResponse;
 
+/* Drawn mouth size in pixels */
+typedef struct {
+    int width;
+    int height;
+} MouthSize;
+
 void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcResponse *response);
-/* YUYV face whose mouth opens from a line (openness 0) to its full shape (255) */
-void FillMouthFrame(uint8_t *frame, uint8_t openness, MouthShape shape);
+/* From a line (openness 0) to the shape's full size (255) */
+MouthSize CalcMouthSize(uint8_t openness, MouthShape shape);
+/* One frame's step toward target, so openness and shape changes blend over a few frames */
+MouthSize EaseMouthSize(MouthSize current, MouthSize target);
+/* YUYV face with the mouth drawn at size */
+void FillMouthFrame(uint8_t *frame, MouthSize size);
 
 #endif

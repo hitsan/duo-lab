@@ -295,9 +295,38 @@ static uint8_t open_frame[UVC_FRAME_BYTES];
 
 static void fillTestFrames(void)
 {
-    FillMouthFrame(closed_frame, 0, MOUTH_A);
-    FillMouthFrame(half_frame, 128, MOUTH_A);
-    FillMouthFrame(open_frame, 255, MOUTH_A);
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    FillMouthFrame(half_frame, CalcMouthSize(128, MOUTH_A));
+    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_A));
+}
+
+static void testMouthSizeSpansClosedLineToDrawnSize(void)
+{
+    const MouthSize closed = CalcMouthSize(0, MOUTH_A);
+    const MouthSize open = CalcMouthSize(255, MOUTH_A);
+    assert(closed.width == FACE_ART_MOUTH_WIDTH && closed.height == 3);
+    assert(open.width == FACE_ART_MOUTH_WIDTH && open.height == FACE_ART_MOUTH_HEIGHT);
+}
+
+static void testEasedMouthMovesPartWayToTarget(void)
+{
+    const MouthSize current = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    const MouthSize eased = EaseMouthSize(current, target);
+    assert(eased.width > 10 && eased.width < 50);
+    assert(eased.height < 10 && eased.height > 3);
+}
+
+static void testEasedMouthReachesTarget(void)
+{
+    MouthSize size = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    int frame = 0;
+    while (frame < 15) {
+        size = EaseMouthSize(size, target);
+        frame++;
+    }
+    assert(size.width == target.width && size.height == target.height);
 }
 
 static bool artInk(int x, int y)
@@ -381,8 +410,8 @@ static void testMouthShapeChangesWidth(void)
     static uint8_t spread[UVC_FRAME_BYTES];
     static uint8_t rounded[UVC_FRAME_BYTES];
     fillTestFrames();
-    FillMouthFrame(spread, 255, MOUTH_I);
-    FillMouthFrame(rounded, 255, MOUTH_U);
+    FillMouthFrame(spread, CalcMouthSize(255, MOUTH_I));
+    FillMouthFrame(rounded, CalcMouthSize(255, MOUTH_U));
     assert(mouthInkWidth(spread) > mouthInkWidth(open_frame));
     assert(mouthInkWidth(rounded) < mouthInkWidth(open_frame));
 }
@@ -710,6 +739,9 @@ int main(void)
     testArtFaceIsCopiedOntoPaper();
     testClosedMouthIsAThinLine();
     testMouthGrowsWithOpenness();
+    testMouthSizeSpansClosedLineToDrawnSize();
+    testEasedMouthMovesPartWayToTarget();
+    testEasedMouthReachesTarget();
     puts("ok");
     return 0;
 }

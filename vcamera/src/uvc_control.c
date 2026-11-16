@@ -24,6 +24,8 @@
 #define MOUTH_CENTER_Y (FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT / 2)
 /* Closed, the outline squashed to this many rows reads as a line */
 #define MOUTH_CLOSED_HEIGHT 3
+/* Share of the remaining distance covered per 30fps frame: about 3 frames to settle */
+#define EASE_PERCENT 50
 
 /* Fully open size per shape, in percent of the drawn mouth: I spread and low, U narrow */
 static const struct {
@@ -117,23 +119,46 @@ static bool mouthInkAt(int x, int y, int width, int height)
     return false;
 }
 
-static uint8_t lumaAt(int x, int y, int mouth_width, int mouth_height)
+static uint8_t lumaAt(int x, int y, MouthSize mouth)
 {
     const bool face = x >= ART_LEFT && x < ART_LEFT + FACE_ART_SIZE && bitAt(FACE_ART, ART_STRIDE, x - ART_LEFT, y);
-    return face || mouthInkAt(x, y, mouth_width, mouth_height) ? LUMA_INK : LUMA_PAPER;
+    return face || mouthInkAt(x, y, mouth.width, mouth.height) ? LUMA_INK : LUMA_PAPER;
 }
 
-void FillMouthFrame(uint8_t *frame, uint8_t openness, MouthShape shape)
+MouthSize CalcMouthSize(uint8_t openness, MouthShape shape)
 {
-    const int mouth_width = FACE_ART_MOUTH_WIDTH * MOUTH_SCALES[shape].width_percent / 100;
     const int open_height = FACE_ART_MOUTH_HEIGHT * MOUTH_SCALES[shape].height_percent / 100;
-    const int mouth_height = MOUTH_CLOSED_HEIGHT + ((open_height - MOUTH_CLOSED_HEIGHT) * openness + 127) / 255;
+    const MouthSize size = {
+        .width = FACE_ART_MOUTH_WIDTH * MOUTH_SCALES[shape].width_percent / 100,
+        .height = MOUTH_CLOSED_HEIGHT + ((open_height - MOUTH_CLOSED_HEIGHT) * openness + 127) / 255,
+    };
+    return size;
+}
+
+/* Rounds away from current so the last pixel is reached instead of stalling */
+static int easeToward(int current, int target)
+{
+    const int step = (target - current) * EASE_PERCENT;
+    return current + (step > 0 ? step + 99 : step - 99) / 100;
+}
+
+MouthSize EaseMouthSize(MouthSize current, MouthSize target)
+{
+    const MouthSize eased = {
+        .width = easeToward(current.width, target.width),
+        .height = easeToward(current.height, target.height),
+    };
+    return eased;
+}
+
+void FillMouthFrame(uint8_t *frame, MouthSize size)
+{
     int y = 0;
     while (y < UVC_FRAME_HEIGHT) {
         uint8_t *pixel = frame + y * UVC_FRAME_WIDTH * 2;
         int x = 0;
         while (x < UVC_FRAME_WIDTH) {
-            pixel[0] = lumaAt(x, y, mouth_width, mouth_height);
+            pixel[0] = lumaAt(x, y, size);
             pixel[1] = CHROMA_NEUTRAL;
             pixel += 2;
             x++;
