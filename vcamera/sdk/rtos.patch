@@ -21,13 +21,13 @@
 +endif()
 +set(VCAMERA_DIR $ENV{VCAMERA_DIR})
 +list(APPEND _SOURCES
-+	${VCAMERA_DIR}/adc_sample.c
-+	${VCAMERA_DIR}/lipsync.c
++	${VCAMERA_DIR}/src/adc_sample.c
++	${VCAMERA_DIR}/src/lipsync.c
 +	${VCAMERA_DIR}/rtos/display_shared.c
 +	${VCAMERA_DIR}/rtos/mic_adc.c
 +	${VCAMERA_DIR}/rtos/vcamera_task.c
-+	${VCAMERA_DIR}/vowel.c)
-+include_directories(${VCAMERA_DIR})
++	${VCAMERA_DIR}/src/vowel.c)
++include_directories(${VCAMERA_DIR}/src)
 +
  if (BOARD MATCHES "milkv-duos")
  	list(APPEND _SOURCES "led_control/milkv_duos_io.c")

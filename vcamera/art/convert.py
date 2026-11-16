@@ -2,7 +2,7 @@
 
 Usage (Pillow from nix):
   nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' \
-      -c python3 art/convert.py art/face.png > face_art.h
+      -c python3 art/convert.py art/face.png > art/face_art.h
 """
 import sys
 from collections import deque

@@ -4,12 +4,7 @@
 /sobel/sobel
 /sobel/out.png
 /sobel/*.o
-/vcamera/test_vcamera
-/vcamera/vcamera-host
-/vcamera/vcamera
-/vcamera/vcamera-reader
 /vcamera/*.wav
-/vcamera/vcamera-uvc
-/vcamera/vcamera-calibrate
 /vcamera/art/face.png
-/vcamera/face_art.h
+/vcamera/art/face_art.h
+/vcamera/build/

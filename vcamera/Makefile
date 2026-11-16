@@ -1,52 +1,65 @@
 WARN := -Wall -Wextra -Werror
-HOST_CFLAGS := -std=c11 -Og -g $(WARN)
+INCLUDE := -Isrc -Iart
+HOST_CFLAGS := -std=c11 -Og -g $(WARN) $(INCLUDE)
+DUO_CFLAGS = $(CFLAGS) $(WARN) $(INCLUDE)
 check-duo = $(if $(TOOLCHAIN_PREFIX),,$(error run 'source /PATH/TO/duo-examples/envsetup.sh' first))
 
-host: vcamera-host
+HEADERS := $(wildcard src/*.h)
+TEST_SOURCES := test/test_vcamera.c src/adc_sample.c src/vowel.c src/lipsync.c src/mic_wav.c src/uvc_control.c src/wav.c
+PLAYER_SOURCES := src/main.c src/display_terminal.c src/lipsync.c src/mic_wav.c src/vowel.c src/wav.c
+READER_SOURCES := src/reader.c src/display_terminal.c src/lipsync.c
+UVC_SOURCES := src/reader.c src/display_uvc.c src/lipsync.c src/uvc_control.c
 
-duo: vcamera
+host: build/vcamera-host
 
-reader: vcamera-reader
+duo: build/vcamera
 
-uvc: vcamera-uvc
+reader: build/vcamera-reader
 
-calibrate: vcamera-calibrate
+uvc: build/vcamera-uvc
 
-test: test_vcamera
-	./test_vcamera
+calibrate: build/vcamera-calibrate
 
-test_vcamera: test_vcamera.c adc_sample.c adc_sample.h face_art.h vowel.c vowel.h lipsync.c lipsync.h mic.h mic_wav.c uvc_control.c uvc_control.h wav.c wav.h
-	gcc $(HOST_CFLAGS) -o $@ test_vcamera.c adc_sample.c vowel.c lipsync.c mic_wav.c uvc_control.c wav.c -lm
+test: build/test_vcamera
+	build/test_vcamera
 
-vcamera-host: main.c display.h display_terminal.c lipsync.c lipsync.h mic.h mic_wav.c vowel.c vowel.h vowel_templates.h wav.c wav.h
-	gcc $(HOST_CFLAGS) -o $@ main.c display_terminal.c lipsync.c mic_wav.c vowel.c wav.c -lm
+build:
+	mkdir -p $@
 
-vcamera: main.c display.h display_terminal.c lipsync.c lipsync.h mic.h mic_wav.c vowel.c vowel.h vowel_templates.h wav.c wav.h
+build/test_vcamera: $(TEST_SOURCES) $(HEADERS) art/face_art.h | build
+	gcc $(HOST_CFLAGS) -o $@ $(TEST_SOURCES) -lm
+
+build/vcamera-host: $(PLAYER_SOURCES) $(HEADERS) | build
+	gcc $(HOST_CFLAGS) -o $@ $(PLAYER_SOURCES) -lm
+
+build/vcamera: $(PLAYER_SOURCES) $(HEADERS) | build
 	$(check-duo)
-	$(CC) $(CFLAGS) $(WARN) -o $@ main.c display_terminal.c lipsync.c mic_wav.c vowel.c wav.c $(LDFLAGS) -lm
+	$(CC) $(DUO_CFLAGS) -o $@ $(PLAYER_SOURCES) $(LDFLAGS) -lm
 
-vcamera-reader: reader.c display.h display_terminal.c lipsync.c lipsync.h shared_openness.h vowel.h
+build/vcamera-reader: $(READER_SOURCES) $(HEADERS) | build
 	$(check-duo)
-	$(CC) $(CFLAGS) $(WARN) -o $@ reader.c display_terminal.c lipsync.c $(LDFLAGS) -lm
+	$(CC) $(DUO_CFLAGS) -o $@ $(READER_SOURCES) $(LDFLAGS) -lm
 
-vcamera-uvc: reader.c display.h display_uvc.c face_art.h lipsync.c lipsync.h shared_openness.h uvc_control.c uvc_control.h vowel.h
+build/vcamera-uvc: $(UVC_SOURCES) $(HEADERS) art/face_art.h | build
 	$(check-duo)
-	$(CC) $(CFLAGS) $(WARN) -o $@ reader.c display_uvc.c lipsync.c uvc_control.c $(LDFLAGS) -lm
+	$(CC) $(DUO_CFLAGS) -o $@ $(UVC_SOURCES) $(LDFLAGS) -lm
 
-vcamera-calibrate: calibrate.c shared_openness.h vowel.h
+build/vcamera-calibrate: src/calibrate.c $(HEADERS) | build
 	$(check-duo)
-	$(CC) $(CFLAGS) $(WARN) -o $@ calibrate.c $(LDFLAGS)
+	$(CC) $(DUO_CFLAGS) -o $@ src/calibrate.c $(LDFLAGS)
 
 # The drawing stays out of git: put it at art/face.png or pass ART=path. Needs Pillow, taken from nix
 ART ?= art/face.png
-face_art.h: $(ART) art/convert.py
+face_art: art/face_art.h
+
+art/face_art.h: $(ART) art/convert.py
 	nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' -c python3 art/convert.py $(ART) > $@
 
-run: vcamera-host
+run: build/vcamera-host
 	$(if $(WAV),,$(error usage: make run WAV=path/to/voice.wav))
-	./vcamera-host < $(WAV)
+	build/vcamera-host < $(WAV)
 
 clean:
-	rm -f test_vcamera vcamera-host vcamera vcamera-reader vcamera-uvc vcamera-calibrate
+	rm -f build/test_vcamera build/vcamera-host build/vcamera build/vcamera-reader build/vcamera-uvc build/vcamera-calibrate
 
-.PHONY: host duo reader uvc calibrate test run clean
+.PHONY: host duo reader uvc calibrate test face_art run clean
