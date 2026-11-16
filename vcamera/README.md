@@ -65,6 +65,8 @@ ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
 
 `vcamera-uvc` は止めずに動かし続ける。f_uvc は UVC の制御要求を userspace に渡すので、応答する者がいないと ep0 が止まり、NCM (ssh) の受信も詰まる。
 
+環境変数 `VCAMERA_ASCII` を付けて起動すると、映像を ASCII アートにする (`VCAMERA_ASCII=1 nohup sh usb-uvc-ncm.sh ...`)。フレームを 8x8 のセルに分け、セルの明るさで ` .:-=+*%#@` のどれかを選び、セルの色で黒地に描く。顔と背景の ASCII は最初に 1 回だけ作り、毎フレーム描き直すのは口の周りのセル行だけ。
+
 動作中の `vcamera-uvc` を差し替えると NCM ごと落ちる (原因は未調査)。USB を挿し直せば戻る。差し替えは Duo を再起動した直後に行う。
 
 ## 母音のキャリブレーション

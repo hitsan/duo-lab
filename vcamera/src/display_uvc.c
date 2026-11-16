@@ -27,6 +27,7 @@ typedef struct {
     bool streaming;
     void *buffers[BUFFER_COUNT];
     MouthSize mouth;
+    bool ascii;
 } Camera;
 
 static Camera camera = {.video = -1};
@@ -48,6 +49,7 @@ static bool openCamera(void)
     if (!readStreamingInterface()) {
         return false;
     }
+    camera.ascii = getenv("VCAMERA_ASCII") != NULL;
     camera.video = open(VIDEO_PATH, O_RDWR | O_NONBLOCK);
     if (camera.video < 0) {
         perror(VIDEO_PATH);
@@ -87,7 +89,11 @@ static void answerSetup(const struct usb_ctrlrequest *control_request)
 
 static bool queueFrame(unsigned int index)
 {
-    FillMouthFrame(camera.buffers[index], camera.mouth);
+    if (camera.ascii) {
+        FillAsciiMouthFrame(camera.buffers[index], camera.mouth);
+    } else {
+        FillMouthFrame(camera.buffers[index], camera.mouth);
+    }
     struct v4l2_buffer buffer = {
         .type = V4L2_BUF_TYPE_VIDEO_OUTPUT,
         .memory = V4L2_MEMORY_MMAP,

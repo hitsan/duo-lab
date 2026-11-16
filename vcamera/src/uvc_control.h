@@ -37,5 +37,9 @@ MouthSize CalcMouthSize(uint8_t openness, MouthShape shape);
 MouthSize EaseMouthSize(MouthSize current, MouthSize target);
 /* YUYV face with the mouth drawn at size */
 void FillMouthFrame(uint8_t *frame, MouthSize size);
+/* frame redrawn as colored ASCII glyphs on black, one glyph per 8x8 cell, denser where brighter */
+void RenderAscii(uint8_t *ascii, const uint8_t *frame);
+/* FillMouthFrame in ASCII; only the cells around the mouth are redrawn each frame */
+void FillAsciiMouthFrame(uint8_t *frame, MouthSize size);
 
 #endif
