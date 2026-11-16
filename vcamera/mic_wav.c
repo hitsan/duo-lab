@@ -11,9 +11,7 @@
 
 static uint8_t *file_data;
 static size_t file_size;
-static Wav wav;
-static size_t frame_index;
-static size_t frames_per_sample;
+static WavPlayer player;
 static size_t samples_sent;
 static struct timespec start_time;
 
@@ -41,15 +39,9 @@ bool InitMic(void)
     if (!readWholeStdin()) {
         return false;
     }
-    if (!ParseWav(file_data, file_size, &wav)) {
+    if (!StartWavPlayer(&player, file_data, file_size, MIC_SAMPLE_RATE)) {
         return false;
     }
-    if (wav.sample_rate % MIC_SAMPLE_RATE != 0 || wav.frame_count == 0) {
-        return false;
-    }
-    /* ponytail: decimation without LPF. Only the level matters, so aliasing is ignored */
-    frames_per_sample = (size_t)(wav.sample_rate / MIC_SAMPLE_RATE);
-    frame_index = 0;
     samples_sent = 0;
     return true;
 }
@@ -68,15 +60,9 @@ static void waitUntilSampleDue(void)
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &due, NULL);
 }
 
-/* Like a mic, never end: wrap to the start after the last sample */
 int16_t ReadMicSample(void)
 {
-    if (frame_index >= wav.frame_count) {
-        frame_index = 0;
-    }
     waitUntilSampleDue();
     samples_sent++;
-    const int16_t sample = wav.samples[frame_index * wav.channels];  /* first channel only */
-    frame_index += frames_per_sample;
-    return sample;
+    return ReadWavPlayerSample(&player);
 }

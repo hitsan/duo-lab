@@ -2,9 +2,12 @@
 #define DISPLAY_H
 
 #include <stdint.h>
+#include "vowel.h"
 
-/* Implementation chosen at link time: terminal now, UVC image later.
-   Called for every mic sample; the display decides when to draw a frame */
-void ShowMouth(uint8_t openness);
+#define DISPLAY_FPS 30
+
+/* Implementation chosen at link time: terminal, shared memory for the small core, UVC image later.
+   Shows one frame; the caller decides the rate */
+void ShowMouth(uint8_t openness, MouthShape shape);
 
 #endif

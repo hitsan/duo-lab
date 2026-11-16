@@ -7,4 +7,9 @@
 /vcamera/test_vcamera
 /vcamera/vcamera-host
 /vcamera/vcamera
+/vcamera/vcamera-reader
 /vcamera/*.wav
+/vcamera/vcamera-uvc
+/vcamera/vcamera-calibrate
+/vcamera/art/face.png
+/vcamera/face_art.h
