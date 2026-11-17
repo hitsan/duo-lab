@@ -76,6 +76,22 @@ static void imagePath(char *path, const char *variable, const char *name)
     snprintf(path, PATH_MAX, "%s/%s", dirname(executable), name);
 }
 
+#define DEFAULT_FACE_SCALE_PERCENT 85
+
+static int faceScalePercent(void)
+{
+    const char *const given = getenv("VCAMERA_FACE_SCALE");
+    if (given == NULL) {
+        return DEFAULT_FACE_SCALE_PERCENT;
+    }
+    const int percent = atoi(given);
+    if (percent < 1 || percent > 100) {
+        fprintf(stderr, "VCAMERA_FACE_SCALE=%s is not 1-100; using %d\n", given, DEFAULT_FACE_SCALE_PERCENT);
+        return DEFAULT_FACE_SCALE_PERCENT;
+    }
+    return percent;
+}
+
 static bool loadScene(void)
 {
     char face_path[PATH_MAX];
@@ -89,7 +105,7 @@ static bool loadScene(void)
     bool built = loadImage(face_path, &face) && loadImage(mouth_path, &mouth) &&
                  (background_path == NULL || loadImage(background_path, &background));
     if (built) {
-        built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL);
+        built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL, faceScalePercent());
         if (!built) {
             fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
                     face_path, face.width, face.height, mouth_path, mouth.width, mouth.height);

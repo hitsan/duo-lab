@@ -70,6 +70,7 @@ ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
 | `VCAMERA_FACE` | 口を消したキャラクターの PNG | 実行ファイルの隣の `face.png` |
 | `VCAMERA_MOUTH` | 口だけの PNG | 実行ファイルの隣の `mouth.png` |
 | `VCAMERA_BACKGROUND` | 背景の画像 (PNG / JPEG) | steelblue の単色 |
+| `VCAMERA_FACE_SCALE` | 絵の大きさ。画面に収まる最大の大きさに対する百分率 (1〜100) | 85 |
 | `VCAMERA_ASCII` | 付けると ASCII アートにする (後述) | 通常の映像 |
 
 絵が読めない、`face.png` と `mouth.png` のサイズが違う、`mouth.png` が全部透明、のどれかなら、`vcamera-uvc` は `/tmp/vcamera-uvc.log` に理由を書き、既定の単色だけを映して動き続ける。終了すると UVC の要求に答える者がいなくなり NCM (ssh) まで止まるため。絵を直したら Duo を再起動する。

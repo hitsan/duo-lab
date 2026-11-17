@@ -191,8 +191,8 @@ static Color averageArea(const RgbaImage *image, Area source, Area destination, 
     return color;
 }
 
-/* Where a width x height canvas lands when scaled to fit the frame, centered */
-static Area fitArea(int width, int height)
+/* Where a width x height canvas lands when scaled to scale_percent of fitting the frame, centered */
+static Area fitArea(int width, int height, int scale_percent)
 {
     Area area = {.width = UVC_FRAME_WIDTH, .height = UVC_FRAME_HEIGHT};
     if (width * UVC_FRAME_HEIGHT > height * UVC_FRAME_WIDTH) {
@@ -200,6 +200,8 @@ static Area fitArea(int width, int height)
     } else {
         area.width = width * UVC_FRAME_HEIGHT / height;
     }
+    area.width = area.width * scale_percent / 100;
+    area.height = area.height * scale_percent / 100;
     area.left = (UVC_FRAME_WIDTH - area.width) / 2;
     area.top = (UVC_FRAME_HEIGHT - area.height) / 2;
     return area;
@@ -315,13 +317,13 @@ static void fillMouth(const RgbaImage *mouth, Area face_area, Area box)
     scene.mouth_area = area;
 }
 
-bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background)
+bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background, int scale_percent)
 {
     Area box;
     if (mouth->width != face->width || mouth->height != face->height || !findOpaqueBox(mouth, &box)) {
         return false;
     }
-    const Area face_area = fitArea(face->width, face->height);
+    const Area face_area = fitArea(face->width, face->height, scale_percent);
     fillFaceFrame(face, face_area, background);
     fillMouth(mouth, face_area, box);
     scene.ascii_face_ready = false;

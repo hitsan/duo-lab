@@ -39,9 +39,10 @@ typedef struct {
 } RgbaImage;
 
 void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcResponse *response);
-/* Fits the face canvas into the frame over background (NULL: a solid color) and keeps the mouth,
-   which must share the face's canvas size and have opaque pixels. Call before drawing frames */
-bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background);
+/* Fits the face canvas into the frame, shrunk to scale_percent and centered, over background (NULL: a solid
+   color) and keeps the mouth, which must share the face's canvas size and have opaque pixels.
+   Call before drawing frames */
+bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background, int scale_percent);
 /* The default background alone, with no mouth: what to show when the images cannot be used */
 void BuildPlainScene(void);
 /* From a line (openness 0) to the shape's full size (255) */

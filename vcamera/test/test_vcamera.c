@@ -336,7 +336,7 @@ static void drawTestCanvases(void)
 
 static void fillTestFrames(void)
 {
-    assert(BuildScene(&face, &mouth, NULL));
+    assert(BuildScene(&face, &mouth, NULL, 100));
     FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
     FillMouthFrame(half_frame, CalcMouthSize(128, MOUTH_A));
     FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_A));
@@ -387,14 +387,14 @@ static void testSceneRejectsMouthOfAnotherSize(void)
     RgbaImage small = {40, 30, small_pixels};
     drawTestCanvases();
     paint(&small, 0, 0, 10, 10, BLACK);
-    assert(!BuildScene(&face, &small, NULL));
+    assert(!BuildScene(&face, &small, NULL, 100));
 }
 
 static void testSceneRejectsTransparentMouth(void)
 {
     drawTestCanvases();
     memset(mouth_pixels, 0, sizeof mouth_pixels);
-    assert(!BuildScene(&face, &mouth, NULL));
+    assert(!BuildScene(&face, &mouth, NULL, 100));
 }
 
 static void testPlainSceneIsSolidBackgroundAtAnyOpenness(void)
@@ -436,12 +436,30 @@ static void testSquareFaceIsCenteredKeepingAspect(void)
     RgbaImage square_mouth = {60, 60, square_mouth_pixels};
     paint(&square_face, 0, 0, 60, 60, WHITE);
     paint(&square_mouth, 20, 40, 20, 5, BLACK);
-    assert(BuildScene(&square_face, &square_mouth, NULL));
+    assert(BuildScene(&square_face, &square_mouth, NULL, 100));
     FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
     assert(pairIs(closed_frame, 38, 0, STEELBLUE_YUYV));
     assert(pairIs(closed_frame, 40, 0, WHITE_YUYV));
     assert(pairIs(closed_frame, 278, UVC_FRAME_HEIGHT - 1, WHITE_YUYV));
     assert(pairIs(closed_frame, 280, 0, STEELBLUE_YUYV));
+}
+
+static void testSquareFaceShrinksAroundFrameCenter(void)
+{
+    static uint8_t square_face_pixels[60 * 60 * 4];
+    static uint8_t square_mouth_pixels[60 * 60 * 4];
+    RgbaImage square_face = {60, 60, square_face_pixels};
+    RgbaImage square_mouth = {60, 60, square_mouth_pixels};
+    paint(&square_face, 0, 0, 60, 60, WHITE);
+    paint(&square_mouth, 20, 40, 20, 5, BLACK);
+    assert(BuildScene(&square_face, &square_mouth, NULL, 50));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    assert(pairIs(closed_frame, 98, 60, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 100, 60, WHITE_YUYV));
+    assert(pairIs(closed_frame, 100, 59, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 218, 179, WHITE_YUYV));
+    assert(pairIs(closed_frame, 220, 179, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 218, 180, STEELBLUE_YUYV));
 }
 
 static void testFaceKeepsItsColor(void)
@@ -460,7 +478,7 @@ static void testHalfTransparentFaceBlendsWithBackground(void)
     paint(&black, 0, 0, 4, 3, BLACK);
     drawTestCanvases();
     paint(&face, FACE_LEFT, FACE_TOP, 10, 10, half_white);
-    assert(BuildScene(&face, &mouth, &black));
+    assert(BuildScene(&face, &mouth, &black, 100));
     FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
     const uint8_t luma = lumaAt(closed_frame, FACE_LEFT * CANVAS_SCALE, FACE_TOP * CANVAS_SCALE);
     assert(luma > 120 && luma < 132);
@@ -474,7 +492,7 @@ static void testBackgroundImageCoversFrameCenterCropped(void)
     paint(&wide, 0, 0, 4, 2, RED);
     paint(&wide, 4, 0, 4, 2, BLUE);
     drawTestCanvases();
-    assert(BuildScene(&face, &mouth, &wide));
+    assert(BuildScene(&face, &mouth, &wide, 100));
     FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
     assert(pairIs(closed_frame, 0, 0, RED_YUYV));
     assert(pairIs(closed_frame, 158, UVC_FRAME_HEIGHT - 1, RED_YUYV));
@@ -634,7 +652,7 @@ static void testAsciiMouthOpensAndBackgroundStays(void)
     static uint8_t open[UVC_FRAME_BYTES];
     static uint8_t ascii[UVC_FRAME_BYTES];
     drawTestCanvases();
-    assert(BuildScene(&face, &mouth, NULL));
+    assert(BuildScene(&face, &mouth, NULL, 100));
     FillAsciiMouthFrame(closed, CalcMouthSize(0, MOUTH_A));
     FillAsciiMouthFrame(open, CalcMouthSize(255, MOUTH_A));
     assert(memcmp(closed, open, UVC_FRAME_BYTES) != 0);
@@ -648,10 +666,10 @@ static void testAsciiFollowsANewScene(void)
     static uint8_t frame[UVC_FRAME_BYTES];
     static uint8_t ascii[UVC_FRAME_BYTES];
     drawTestCanvases();
-    assert(BuildScene(&face, &mouth, NULL));
+    assert(BuildScene(&face, &mouth, NULL, 100));
     FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
     paint(&face, FACE_LEFT, FACE_TOP, FACE_SIZE, FACE_SIZE, RED);
-    assert(BuildScene(&face, &mouth, NULL));
+    assert(BuildScene(&face, &mouth, NULL, 100));
     FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
     FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
     RenderAscii(ascii, closed_frame);
@@ -982,6 +1000,7 @@ int main(void)
     testPlainSceneIsSolidBackgroundAtAnyOpenness();
     testFaceFitsFrameOverDefaultBackground();
     testSquareFaceIsCenteredKeepingAspect();
+    testSquareFaceShrinksAroundFrameCenter();
     testFaceKeepsItsColor();
     testHalfTransparentFaceBlendsWithBackground();
     testBackgroundImageCoversFrameCenterCropped();
