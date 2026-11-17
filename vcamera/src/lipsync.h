@@ -3,9 +3,6 @@
 
 #include <stdint.h>
 
-#define CLOSED_DB -45.0f
-#define FULL_OPEN_DB -12.0f
-
 /* Follows the voice level (0..1): rises fast when speaking, falls slowly when quiet.
    Feed one sample at MIC_SAMPLE_RATE; returns the new level */
 float SmoothVoiceLevel(float level, float sample);

@@ -115,7 +115,6 @@ scp -O root@192.168.42.1:vowel_templates.h src/
 |---|---|---|
 | `RISE_MS` `FALL_MS` | `src/lipsync.c` | 包絡が立ち上がる・下がる速さ |
 | `MIC_CLOSED_DB` `MIC_FULL_OPEN_DB` | `rtos/vcamera_task.c` | 小コア (実マイク) のしきい値 |
-| `CLOSED_DB` `FULL_OPEN_DB` | `src/lipsync.h` | ホストの WAV 再生用のしきい値 |
 
 ### 口の形
 
@@ -141,7 +140,6 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 | 小コア | `rtos/mic_adc.c` (SARADC ch1 を `rdtime` で 8kHz ポーリング) | `rtos/display_shared.c` (共有メモリ) |
 | `vcamera-uvc` | 共有メモリ (`src/reader.c`) | `src/display_uvc.c` (`/dev/video0`) |
 | `vcamera-reader` | 共有メモリ (`src/reader.c`) | `src/display_terminal.c` |
-| `vcamera-host` | `src/mic_wav.c` (stdin の WAV) | `src/display_terminal.c` |
 
 `src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。起動時に 1 回だけ、`face.png` をフレームに合わせて縮小し (縮小先の 1 画素に入る元画素を平均する)、背景にアルファブレンドして YUYV (BT.601, limited range) にしておく。`mouth.png` も同じ変換で縮小し、口の矩形の分だけ Y・U・V・alpha で持っておく。毎フレームはそのフレームをコピーし、口を元の中心のまわりで伸縮させて (最近傍) アルファブレンドするだけ。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する (`mouth_a` `mouth_i` `mouth_u`)。閉じているときは 3 行 (`MOUTH_CLOSED_HEIGHT`) に潰し、潰した行のうち最も不透明な画素を残すので、唇の線が消えずに線として残る。
 
@@ -161,12 +159,8 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 
 ```sh
 make test                                     # ホストでテスト
-make run WAV=voice.wav                        # ホストで WAV に合わせてターミナルの顔を動かす
 
 make reader                                   # 小コアの出力をターミナルで見る
 scp -O build/vcamera-reader root@192.168.42.1:
 ssh -t root@192.168.42.1 ./vcamera-reader
 ```
-
-`make run` に渡す WAV は 16bit PCM で、サンプリング周波数を 8kHz の整数倍にする。8kHz に間引いて使い、ステレオなら先頭のチャンネルだけを読む。
-
