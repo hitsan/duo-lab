@@ -83,19 +83,17 @@ static bool loadScene(void)
     imagePath(face_path, "VCAMERA_FACE", "face.png");
     imagePath(mouth_path, "VCAMERA_MOUTH", "mouth.png");
     const char *const background_path = getenv("VCAMERA_BACKGROUND");
-    RgbaImage face;
-    RgbaImage mouth;
+    RgbaImage face = {0};
+    RgbaImage mouth = {0};
     RgbaImage background = {0};
-    if (!loadImage(face_path, &face) || !loadImage(mouth_path, &mouth)) {
-        return false;
-    }
-    if (background_path != NULL && !loadImage(background_path, &background)) {
-        return false;
-    }
-    const bool built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL);
-    if (!built) {
-        fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
-                face_path, face.width, face.height, mouth_path, mouth.width, mouth.height);
+    bool built = loadImage(face_path, &face) && loadImage(mouth_path, &mouth) &&
+                 (background_path == NULL || loadImage(background_path, &background));
+    if (built) {
+        built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL);
+        if (!built) {
+            fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
+                    face_path, face.width, face.height, mouth_path, mouth.width, mouth.height);
+        }
     }
     stbi_image_free(face.pixels);
     stbi_image_free(mouth.pixels);
@@ -105,7 +103,12 @@ static bool loadScene(void)
 
 static bool openCamera(void)
 {
-    if (!loadScene() || !readStreamingInterface()) {
+    /* Exiting would leave the UVC requests unanswered and take NCM (ssh) down with them */
+    if (!loadScene()) {
+        fputs("showing the plain background instead\n", stderr);
+        BuildPlainScene();
+    }
+    if (!readStreamingInterface()) {
         return false;
     }
     camera.ascii = getenv("VCAMERA_ASCII") != NULL;

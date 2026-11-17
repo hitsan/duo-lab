@@ -397,6 +397,21 @@ static void testSceneRejectsTransparentMouth(void)
     assert(!BuildScene(&face, &mouth, NULL));
 }
 
+static void testPlainSceneIsSolidBackgroundAtAnyOpenness(void)
+{
+    BuildPlainScene();
+    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_I));
+    int x = 0;
+    while (x < UVC_FRAME_WIDTH) {
+        int y = 0;
+        while (y < UVC_FRAME_HEIGHT) {
+            assert(pairIs(open_frame, x, y, STEELBLUE_YUYV));
+            y++;
+        }
+        x += 2;
+    }
+}
+
 static void testFaceFitsFrameOverDefaultBackground(void)
 {
     drawTestCanvases();
@@ -964,6 +979,7 @@ int main(void)
     testRequestsOutsideStreamingInterfaceStall();
     testSceneRejectsMouthOfAnotherSize();
     testSceneRejectsTransparentMouth();
+    testPlainSceneIsSolidBackgroundAtAnyOpenness();
     testFaceFitsFrameOverDefaultBackground();
     testSquareFaceIsCenteredKeepingAspect();
     testFaceKeepsItsColor();

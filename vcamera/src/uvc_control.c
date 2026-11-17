@@ -328,6 +328,17 @@ bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *
     return true;
 }
 
+void BuildPlainScene(void)
+{
+    int offset = 0;
+    while (offset < UVC_FRAME_BYTES) {
+        putPair(scene.face_frame + offset, DEFAULT_BACKGROUND, DEFAULT_BACKGROUND);
+        offset += 4;
+    }
+    scene.mouth_area = (Area){0};
+    scene.ascii_face_ready = false;
+}
+
 /* Pixel for (x, y) of the mouth stretched to size. Squashing keeps the most opaque of the merged rows,
    so the outline merges into a line instead of breaking into dots */
 static const uint8_t *mouthPixelAt(int x, int y, MouthSize size)

@@ -72,7 +72,7 @@ ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
 | `VCAMERA_BACKGROUND` | 背景の画像 (PNG / JPEG) | steelblue の単色 |
 | `VCAMERA_ASCII` | 付けると ASCII アートにする (後述) | 通常の映像 |
 
-絵が読めない、`face.png` と `mouth.png` のサイズが違う、`mouth.png` が全部透明、のどれかなら、`vcamera-uvc` は `/tmp/vcamera-uvc.log` に理由を書いて終了する。このとき UVC も NCM も PC から見えないので、Duo を再起動して絵を直す。
+絵が読めない、`face.png` と `mouth.png` のサイズが違う、`mouth.png` が全部透明、のどれかなら、`vcamera-uvc` は `/tmp/vcamera-uvc.log` に理由を書き、既定の単色だけを映して動き続ける。終了すると UVC の要求に答える者がいなくなり NCM (ssh) まで止まるため。絵を直したら Duo を再起動する。
 
 `vcamera-uvc` は止めずに動かし続ける。f_uvc は UVC の制御要求を userspace に渡すので、応答する者がいないと ep0 が止まり、NCM (ssh) の受信も詰まる。
 
