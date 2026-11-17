@@ -16,7 +16,6 @@
 #include <linux/videodev2.h>
 #include "config.h"
 #include "display.h"
-#include "lipsync.h"
 #include "uvc_control.h"
 
 #define VIDEO_PATH "/dev/video0"

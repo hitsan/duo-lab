@@ -2,11 +2,11 @@
 #define DISPLAY_H
 
 #include <stdint.h>
-#include "vowel.h"
+#include "vowel_types.h"
 
 #define DISPLAY_FPS 30
 
-/* Implementation chosen at link time: terminal, shared memory for the small core, UVC image later.
+/* Implementation chosen at link time: shared memory on the small core, UVC image on Linux.
    Shows one frame; the caller decides the rate */
 void ShowMouth(uint8_t openness, MouthShape shape);
 

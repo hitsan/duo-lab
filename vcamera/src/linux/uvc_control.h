@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "vowel.h"
+#include "vowel_types.h"
 
 #define UVC_FRAME_WIDTH 320
 #define UVC_FRAME_HEIGHT 240

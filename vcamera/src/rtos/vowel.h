@@ -3,35 +3,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "vowel_types.h"
 
 /* 32ms at 8kHz */
 #define VOWEL_FRAME_SAMPLES 256
-/* Up to 2.5kHz: above that, normal-volume speech sinks into the mic noise */
-#define VOWEL_BANDS 10
-
-typedef enum {
-    VOWEL_A,
-    VOWEL_I,
-    VOWEL_U,
-    VOWEL_E,
-    VOWEL_O,
-    VOWEL_COUNT
-} Vowel;
-
-/* Three mouth shapes: E shares the spread lips of I, O the rounded lips of U.
-   O sounds closer to A than to U, so the classifier keeps all five apart */
-typedef enum {
-    MOUTH_A,
-    MOUTH_I,
-    MOUTH_U,
-    MOUTH_SHAPE_COUNT
-} MouthShape;
-
-/* Log band energies with their mean removed, so loudness drops out */
-typedef struct {
-    float bands[VOWEL_BANDS];
-} VowelFeature;
-
 /* Linear energy per band */
 void MeasureVowelBands(const int16_t *frame, float energies[VOWEL_BANDS]);
 /* noise: energies measured in silence, subtracted before the logs. NULL for none */
