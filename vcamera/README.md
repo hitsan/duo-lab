@@ -9,7 +9,7 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 ```
 
 - 小コアがマイクを 8kHz で読み、口の開き (0〜255) と口の形 (あ / い・え / う・お) を共有メモリに書く。
-- Linux の `vcamera-uvc` がそれを読み、顔の絵に口を重ねて 320x240 YUYV 30fps で UVC に流す。
+- Linux の `vcamera-uvc` がそれを読み、キャラクターの絵に口の絵を重ねて 320x240 YUYV 30fps で UVC に流す。
 
 ## ディレクトリ
 
@@ -18,7 +18,6 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 | `src/` | C のソース。ホスト・Linux・小コアで共有する |
 | `rtos/` | 小コア専用の実装 (ADC 読み取り、共有メモリへの書き込み、FreeRTOS タスク) |
 | `test/` | ホストで動くテスト |
-| `art/` | 顔の絵と、それを C の配列に変換するスクリプト |
 | `sdk/` | `duo-buildroot-sdk` に当てる変更 |
 | `build.sh` | SDK をビルドして SD イメージを作る |
 | `usb-uvc-ncm.sh` | Duo 上で USB を UVC + NCM にする |
@@ -28,7 +27,7 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 
 - **ハード**: 秋月 AE-MAX9814ETD (JP1 ショートで DC バイアス出力)。OUT を GP26 に直結し、GAIN を VDD につないで 40dB にする。GP26 は基板上で 10k/10k に分圧されて SoC の ADC1 (1.8V 系) に入るので、ピンでは約 3.6V まで扱える。マイクの 1.23V バイアスはそのまま入れてよい。
 - **ホストのツール**: `.envrc` (direnv) が dev-shell の `milkv-duo-sdk` と `duo-examples/envsetup.sh` を読み込む。SDK のビルドと、Linux 用バイナリのクロスコンパイルの両方がこれでそろう。
-- **顔の絵**: `art/face.png` に白黒の線画を置く。絵は git に入れない。
+- **キャラクターの絵**: `face.png` と `mouth.png` の 2 枚 (下の「2. 絵を用意する」)。絵は git に入れない (`vcamera/*.png` は無視される)。
 
 ## 使い方
 
@@ -41,31 +40,43 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 
 `build.sh` は submodule と host-tools を取得し、`sdk/` の変更を当ててからビルドする。当たっているかを確かめてから当てるので、何度実行しても結果は同じ。
 
-### 2. 顔の絵を変換する
+### 2. 絵を用意する
 
-```sh
-make face_art                                 # art/face.png → art/face_art.h。別の絵は ART=path。Pillow は nix から取る
-make face_art BACKGROUND=~/Pictures/room.jpg  # 背景を画像にする
-make face_art BACKGROUND=pink                 # 背景を単色にする (色名か '#rrggbb'。省略時は steelblue)
-```
+同じキャンバスサイズの透過 PNG を 2 枚用意する (AI ツールなどで作る)。
 
-`art/convert.py` が絵を 240px に縮めて 2 値化し、いちばん大きい線を輪郭、残りのうち一番下の線を口とみなして切り出す。輪郭とその内側が顔になり、顔の中は絵のまま (白い紙 + 線)、顔の外には背景が出る。輪郭の外にある線は消える。輪郭が閉じていないと内側を塗れず、輪郭の線だけが顔になる。
+| ファイル | 中身 |
+|---|---|
+| `face.png` | キャラクターをカラーで。口だけを消し、それ以外は透明。体が入っていてもよい。サイズは自由 |
+| `mouth.png` | `face.png` と同じサイズ。口だけを描き、それ以外は透明 |
 
-背景は画像ファイルか色で、`BACKGROUND` に渡す。画像は 320x240 に収まるよう拡大縮小して、はみ出た分を切り落とす。結果はすべて `art/face_art.h` に書かれる (git 管理外)。背景を変えたら `make face_art` からやり直す。
+口の位置は、`mouth.png` の透明でない画素を囲む矩形で決まる。ほぼ透明 (alpha 16 未満) の画素は無視する。キャンバスは縦横比を保って 320x240 に収まるよう拡大縮小して中央に置き、余白には背景が出る。背景は任意の画像 (PNG / JPEG) で、320x240 を覆うよう拡大縮小してはみ出た分を切り落とす。指定しなければ steelblue の単色になる。
+
+絵は Duo の上で `vcamera-uvc` の起動時に読み込む。読み込みにはメモリを幅 x 高さ x 4 バイト使うので、1000px 程度までにしておく。
 
 ### 3. Duo で動かす
 
 ```sh
 make uvc
-scp -O build/vcamera-uvc usb-uvc-ncm.sh root@192.168.42.1:
+scp -O build/vcamera-uvc usb-uvc-ncm.sh face.png mouth.png root@192.168.42.1:   # 背景を使うならその画像も
 ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
 ```
 
 `usb-uvc-ncm.sh` が USB gadget を作り直し、隣に置いた `vcamera-uvc` を起動する。gadget を作り直すと ssh が一度切れるので、`nohup` で切り離して実行する。数秒後に PC から UVC カメラと NCM の両方が見える。
 
+`vcamera-uvc` は起動時に絵を読み込む。パスは環境変数で変えられる (`VCAMERA_BACKGROUND=room.jpg nohup sh usb-uvc-ncm.sh ...`)。
+
+| 環境変数 | 中身 | 省略時 |
+|---|---|---|
+| `VCAMERA_FACE` | 口を消したキャラクターの PNG | 実行ファイルの隣の `face.png` |
+| `VCAMERA_MOUTH` | 口だけの PNG | 実行ファイルの隣の `mouth.png` |
+| `VCAMERA_BACKGROUND` | 背景の画像 (PNG / JPEG) | steelblue の単色 |
+| `VCAMERA_ASCII` | 付けると ASCII アートにする (後述) | 通常の映像 |
+
+絵が読めない、`face.png` と `mouth.png` のサイズが違う、`mouth.png` が全部透明、のどれかなら、`vcamera-uvc` は `/tmp/vcamera-uvc.log` に理由を書いて終了する。このとき UVC も NCM も PC から見えないので、Duo を再起動して絵を直す。
+
 `vcamera-uvc` は止めずに動かし続ける。f_uvc は UVC の制御要求を userspace に渡すので、応答する者がいないと ep0 が止まり、NCM (ssh) の受信も詰まる。
 
-環境変数 `VCAMERA_ASCII` を付けて起動すると、映像を ASCII アートにする (`VCAMERA_ASCII=1 nohup sh usb-uvc-ncm.sh ...`)。フレームを 8x8 のセルに分け、セルの明るさで ` .:-=+*%#@` のどれかを選び、セルの色で黒地に描く。顔と背景の ASCII は最初に 1 回だけ作り、毎フレーム描き直すのは口の周りのセル行だけ。
+`VCAMERA_ASCII` を付けて起動すると、映像を ASCII アートにする (`VCAMERA_ASCII=1 nohup sh usb-uvc-ncm.sh ...`)。フレームを 8x8 のセルに分け、セルの明るさで ` .:-=+*%#@` のどれかを選び、セルの色で黒地に描く。顔と背景の ASCII は最初に 1 回だけ作り、毎フレーム描き直すのは口の周りのセル行だけ。
 
 動作中の `vcamera-uvc` を差し替えると NCM ごと落ちる (原因は未調査)。USB を挿し直せば戻る。差し替えは Duo を再起動した直後に行う。
 
@@ -121,7 +132,7 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 | `vcamera-reader` | 共有メモリ (`src/reader.c`) | `src/display_terminal.c` |
 | `vcamera-host` | `src/mic_wav.c` (stdin の WAV) | `src/display_terminal.c` |
 
-`src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。背景に口を消した顔を重ねたフレームを最初に 1 回だけ作り、毎フレームそれをコピーして口だけを描く。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する。閉じているときは、口の輪郭を 3 行に潰して線にする。
+`src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。起動時に 1 回だけ、`face.png` をフレームに合わせて縮小し (縮小先の 1 画素に入る元画素を平均する)、背景にアルファブレンドして YUYV (BT.601, limited range) にしておく。`mouth.png` も同じ変換で縮小し、口の矩形の分だけ Y・U・V・alpha で持っておく。毎フレームはそのフレームをコピーし、口を元の中心のまわりで伸縮させて (最近傍) アルファブレンドするだけ。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する (`MOUTH_SCALES`)。閉じているときは 3 行 (`MOUTH_CLOSED_HEIGHT`) に潰し、潰した行のうち最も不透明な画素を残すので、唇の線が消えずに線として残る。
 
 ### 口の動きをなめらかにする
 
@@ -138,7 +149,7 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 ## デバッグ用
 
 ```sh
-make test                                     # ホストでテスト (先に make face_art)
+make test                                     # ホストでテスト
 make run WAV=voice.wav                        # ホストで WAV に合わせてターミナルの顔を動かす
 
 make reader                                   # 小コアの出力をターミナルで見る
