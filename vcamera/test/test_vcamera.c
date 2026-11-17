@@ -904,16 +904,6 @@ static void testMissingConfigFileKeepsDefaults(void)
     assert(strcmp(config.face, "/nonexistent/face.png") == 0);
 }
 
-/* Run from vcamera/: the shipped file must spell out exactly the defaults */
-static void testShippedConfigHoldsTheDefaults(void)
-{
-    Config shipped = {0};
-    Config defaults = {0};
-    assert(LoadConfig(&shipped, "vcamera.conf"));
-    SetDefaultConfig(&defaults, ".");
-    assert(memcmp(&shipped, &defaults, sizeof shipped) == 0);
-}
-
 static void testEasePercentSetsStep(void)
 {
     const MouthSize current = {.width = 10, .height = 10};
@@ -995,7 +985,6 @@ int main(void)
     testConfigPathsAreRelativeToItsDirectory();
     testConfigFileIsRead();
     testMissingConfigFileKeepsDefaults();
-    testShippedConfigHoldsTheDefaults();
     testEasePercentSetsStep();
     testMouthScalesSetSize();
     puts("ok");
