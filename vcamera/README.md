@@ -17,7 +17,8 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 |---|---|
 | `src/shared/` | 小コアと Linux の取り決め (共有メモリの配置、口の形などの型、`ShowMouth`) |
 | `src/rtos/` | 小コアの実装 (ADC 読み取り、口の開き、母音判定、共有メモリへの書き込み、FreeRTOS タスク) |
-| `src/linux/` | Linux の実装 (共有メモリの読み取り、UVC、設定ファイル、キャリブレーション) |
+| `src/linux/` | Linux の実装 (共有メモリの読み取り、UVC、設定ファイル) |
+| `tools/` | 開発用のツール (母音テンプレートを取る `vcamera-calibrate`) |
 | `test/` | ホストで動くテスト |
 | `sdk/` | `duo-buildroot-sdk` に当てる変更 |
 | `build.sh` | SDK をビルドして SD イメージを作る (`make image` / `make kernel` から呼ぶ) |

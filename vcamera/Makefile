@@ -34,9 +34,9 @@ build/vcamera-uvc: $(UVC_SOURCES) $(HEADERS) build/stb_impl.duo.o | build
 	$(check-duo)
 	$(CC) $(DUO_CFLAGS) $(STB_INCLUDE) -o $@ $(UVC_SOURCES) build/stb_impl.duo.o $(LDFLAGS) -lm
 
-build/vcamera-calibrate: src/linux/calibrate.c $(HEADERS) | build
+build/vcamera-calibrate: tools/calibrate.c $(HEADERS) | build
 	$(check-duo)
-	$(CC) $(DUO_CFLAGS) -o $@ src/linux/calibrate.c $(LDFLAGS)
+	$(CC) $(DUO_CFLAGS) -o $@ tools/calibrate.c $(LDFLAGS)
 
 clean:
 	rm -f build/test_vcamera build/vcamera-uvc build/vcamera-calibrate build/stb_impl.duo.o
