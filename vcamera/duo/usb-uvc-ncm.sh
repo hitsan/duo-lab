@@ -1,7 +1,6 @@
 #!/bin/sh
 # Expose NCM (ssh) and a 320x240 YUYV 30fps UVC camera as one USB gadget.
-# Restarting the gadget drops ssh, so run it detached, with vcamera-uvc next to it:
-#   nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &
+# auto.sh runs it at boot, with vcamera-uvc next to it
 
 WIDTH=320
 HEIGHT=240

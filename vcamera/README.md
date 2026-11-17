@@ -26,15 +26,16 @@ make image
 
 ```sh
 make uvc
-scp -O build/vcamera-uvc usb-uvc-ncm.sh vcamera.conf face.png mouth.png root@192.168.42.1:
-ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
+scp -O build/vcamera-uvc duo/usb-uvc-ncm.sh duo/vcamera.conf face.png mouth.png root@192.168.42.1:
+scp -O duo/auto.sh root@192.168.42.1:/mnt/data/
+ssh root@192.168.42.1 reboot
 ```
 
-数秒後にPCからUVCカメラとして見える。うまく映らないときはDuoの`/tmp/vcamera-uvc.log`を見る。
+Milk-Vのイメージは起動時に`/mnt/data/auto.sh`を実行するので、そこからカメラが立ち上がる。再起動の数秒後にPCからUVCカメラとして見え、次からは電源を入れるだけでよい。うまく映らないときはDuoの`/tmp/vcamera-uvc.log`を見る。
 
 ### 3. 見た目を変える
 
-`vcamera.conf`に`key=value`で書く。書き換えたらDuoを再起動して、手順2の`scp`からやり直す。
+`duo/vcamera.conf`に`key=value`で書く。書き換えたら`scp`でDuoに置き直し、Duoを再起動する。
 
 | キー | 中身 | 既定値 |
 |---|---|---|
@@ -62,14 +63,13 @@ make image
 
 ## Linux側を変更する
 
-`src/linux/`だけを変えたときは、`vcamera-uvc`を作り直してDuoに置けばよい。SDイメージは作り直さない。動作中の`vcamera-uvc`を差し替えるとNCMが落ちるので、Duoを再起動してから置く。
+`src/linux/`だけを変えたときは、`vcamera-uvc`を作り直してDuoに置けばよい。SDイメージは作り直さない。動作中の`vcamera-uvc`を上書きするとNCMが落ちるので、別名で送ってから`mv`で置き換え、再起動する。
 
 ```sh
 make test
 make uvc
-ssh root@192.168.42.1 reboot
-scp -O build/vcamera-uvc root@192.168.42.1:
-ssh root@192.168.42.1 'nohup sh usb-uvc-ncm.sh > /tmp/usb-uvc-ncm.log 2>&1 &'
+scp -O build/vcamera-uvc root@192.168.42.1:vcamera-uvc.new
+ssh root@192.168.42.1 'mv vcamera-uvc.new vcamera-uvc && reboot'
 ```
 
 `src/shared/`を変えたときは小コアにも影響するので、`make image`でSDイメージも作り直す。

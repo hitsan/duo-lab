@@ -909,8 +909,8 @@ static void testShippedConfigHoldsTheDefaults(void)
 {
     Config shipped = {0};
     Config defaults = {0};
-    assert(LoadConfig(&shipped, "vcamera.conf"));
-    SetDefaultConfig(&defaults, ".");
+    assert(LoadConfig(&shipped, "duo/vcamera.conf"));
+    SetDefaultConfig(&defaults, "duo");
     assert(memcmp(&shipped, &defaults, sizeof shipped) == 0);
 }
 
