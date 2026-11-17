@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "adc_sample.h"
-#include "face_art.h"
+#include "config.h"
 #include <math.h>
 #include "vowel.h"
 #include "lipsync.h"
@@ -279,112 +279,402 @@ static void testRequestsOutsideStreamingInterfaceStall(void)
     assert(response.length < 0);
 }
 
-static uint8_t lumaAt(const uint8_t *frame, int x, int y)
-{
-    return frame[(y * UVC_FRAME_WIDTH + x) * 2];
-}
+/* An 80x60 canvas, fitted 4x onto the 320x240 frame */
+#define CANVAS_WIDTH 80
+#define CANVAS_HEIGHT 60
+#define CANVAS_SCALE 4
+#define FACE_LEFT 20
+#define FACE_TOP 10
+#define FACE_SIZE 40
+#define MOUTH_LEFT 30
+#define MOUTH_TOP 35
+#define MOUTH_WIDTH 20
+#define MOUTH_HEIGHT 10
+#define MOUTH_CENTER_X ((MOUTH_LEFT + MOUTH_WIDTH / 2) * CANVAS_SCALE)
+#define MOUTH_CENTER_Y ((MOUTH_TOP + MOUTH_HEIGHT / 2) * CANVAS_SCALE)
+
+static const uint8_t WHITE[4] = {255, 255, 255, 255};
+static const uint8_t BLACK[4] = {0, 0, 0, 255};
+static const uint8_t RED[4] = {255, 0, 0, 255};
+static const uint8_t BLUE[4] = {0, 0, 255, 255};
+/* BT.601 limited range Y, U, Y, V of a pixel pair */
+static const uint8_t WHITE_YUYV[4] = {235, 128, 235, 128};
+static const uint8_t BLACK_YUYV[4] = {16, 128, 16, 128};
+static const uint8_t RED_YUYV[4] = {81, 90, 81, 240};
+static const uint8_t BLUE_YUYV[4] = {41, 240, 41, 110};
+static const uint8_t STEELBLUE_YUYV[4] = {117, 159, 117, 98};
+
+static uint8_t face_pixels[CANVAS_WIDTH * CANVAS_HEIGHT * 4];
+static uint8_t mouth_pixels[CANVAS_WIDTH * CANVAS_HEIGHT * 4];
+static RgbaImage face = {CANVAS_WIDTH, CANVAS_HEIGHT, face_pixels};
+static RgbaImage mouth = {CANVAS_WIDTH, CANVAS_HEIGHT, mouth_pixels};
 
 static uint8_t closed_frame[UVC_FRAME_BYTES];
 static uint8_t half_frame[UVC_FRAME_BYTES];
 static uint8_t open_frame[UVC_FRAME_BYTES];
 
-#define ART_LEFT ((UVC_FRAME_WIDTH - FACE_ART_SIZE) / 2)
-#define MOUTH_CENTER_X (ART_LEFT + FACE_ART_MOUTH_LEFT + FACE_ART_MOUTH_WIDTH / 2)
-#define MOUTH_CENTER_Y (FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT / 2)
-#define AROUND_MOUTH 60
-
-static void fillTestFrames(void)
+static void paint(RgbaImage *image, int left, int top, int width, int height, const uint8_t rgba[4])
 {
-    FillMouthFrame(closed_frame, 0, MOUTH_A);
-    FillMouthFrame(half_frame, 128, MOUTH_A);
-    FillMouthFrame(open_frame, 255, MOUTH_A);
-}
-
-static bool artInk(int x, int y)
-{
-    return FACE_ART[y * (FACE_ART_SIZE / 8) + x / 8] & (0x80 >> (x % 8));
-}
-
-static bool isInk(const uint8_t *frame, int x, int y)
-{
-    return lumaAt(frame, x, y) < 128;
-}
-
-static int countMouthInk(const uint8_t *frame)
-{
-    int count = 0;
-    int y = MOUTH_CENTER_Y - AROUND_MOUTH;
-    while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
-        int x = MOUTH_CENTER_X - AROUND_MOUTH;
-        while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
-            count += isInk(frame, x, y) && !artInk(x - ART_LEFT, y);
+    int y = top;
+    while (y < top + height) {
+        int x = left;
+        while (x < left + width) {
+            memcpy(image->pixels + (y * image->width + x) * 4, rgba, 4);
             x++;
         }
         y++;
+    }
+}
+
+/* A white face with a black mouth box, on transparent canvases */
+static void drawTestCanvases(void)
+{
+    memset(face_pixels, 0, sizeof face_pixels);
+    memset(mouth_pixels, 0, sizeof mouth_pixels);
+    paint(&face, FACE_LEFT, FACE_TOP, FACE_SIZE, FACE_SIZE, WHITE);
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP, MOUTH_WIDTH, MOUTH_HEIGHT, BLACK);
+}
+
+static void fillTestFrames(void)
+{
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    FillMouthFrame(half_frame, CalcMouthSize(128, MOUTH_A));
+    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_A));
+}
+
+/* The pair holding even x */
+static bool pairIs(const uint8_t *frame, int x, int y, const uint8_t yuyv[4])
+{
+    return memcmp(frame + (y * UVC_FRAME_WIDTH + x) * 2, yuyv, 4) == 0;
+}
+
+static uint8_t lumaAt(const uint8_t *frame, int x, int y)
+{
+    return frame[(y * UVC_FRAME_WIDTH + x) * 2];
+}
+
+static int countDark(const uint8_t *frame)
+{
+    int count = 0;
+    int offset = 0;
+    while (offset < UVC_FRAME_BYTES) {
+        count += frame[offset] < 64;
+        offset += 2;
     }
     return count;
 }
 
-static int mouthInkWidth(const uint8_t *frame)
+static int darkRows(const uint8_t *frame)
 {
-    int left = MOUTH_CENTER_X;
-    int right = MOUTH_CENTER_X;
-    int y = MOUTH_CENTER_Y - AROUND_MOUTH;
-    while (y < MOUTH_CENTER_Y + AROUND_MOUTH) {
-        int x = MOUTH_CENTER_X - AROUND_MOUTH;
-        while (x < MOUTH_CENTER_X + AROUND_MOUTH) {
-            if (isInk(frame, x, y) && !artInk(x - ART_LEFT, y)) {
-                left = x < left ? x : left;
-                right = x > right ? x : right;
-            }
-            x++;
-        }
-        y++;
-    }
-    return right - left;
-}
-
-static void testArtFaceIsCopiedOntoPaper(void)
-{
-    fillTestFrames();
-    assert(!isInk(open_frame, 0, 0));
+    int rows = 0;
     int y = 0;
-    while (y < FACE_ART_SIZE) {
+    while (y < UVC_FRAME_HEIGHT) {
+        bool dark = false;
         int x = 0;
-        while (x < FACE_ART_SIZE) {
-            if (artInk(x, y)) {
-                assert(isInk(closed_frame, ART_LEFT + x, y));
-            }
+        while (x < UVC_FRAME_WIDTH) {
+            dark = dark || lumaAt(frame, x, y) < 64;
             x++;
         }
+        rows += dark;
         y++;
+    }
+    return rows;
+}
+
+static void testSceneRejectsMouthOfAnotherSize(void)
+{
+    static uint8_t small_pixels[40 * 30 * 4];
+    RgbaImage small = {40, 30, small_pixels};
+    drawTestCanvases();
+    paint(&small, 0, 0, 10, 10, BLACK);
+    assert(!BuildScene(&face, &small, NULL, 100));
+}
+
+static void testSceneRejectsTransparentMouth(void)
+{
+    drawTestCanvases();
+    memset(mouth_pixels, 0, sizeof mouth_pixels);
+    assert(!BuildScene(&face, &mouth, NULL, 100));
+}
+
+static void testPlainSceneIsSolidBackgroundAtAnyOpenness(void)
+{
+    BuildPlainScene();
+    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_I));
+    int x = 0;
+    while (x < UVC_FRAME_WIDTH) {
+        int y = 0;
+        while (y < UVC_FRAME_HEIGHT) {
+            assert(pairIs(open_frame, x, y, STEELBLUE_YUYV));
+            y++;
+        }
+        x += 2;
     }
 }
 
-static void testClosedMouthIsAThinLine(void)
+static void testFaceFitsFrameOverDefaultBackground(void)
 {
+    drawTestCanvases();
     fillTestFrames();
-    const int closed = countMouthInk(closed_frame);
-    assert(closed > 0);
-    assert(closed * 4 < countMouthInk(open_frame));
+    const int left = FACE_LEFT * CANVAS_SCALE;
+    const int top = FACE_TOP * CANVAS_SCALE;
+    const int right = left + FACE_SIZE * CANVAS_SCALE;
+    const int bottom = top + FACE_SIZE * CANVAS_SCALE;
+    assert(pairIs(closed_frame, left, top, WHITE_YUYV));
+    assert(pairIs(closed_frame, right - 2, bottom - 1, WHITE_YUYV));
+    assert(pairIs(closed_frame, left - 2, top, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, right, top, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, left, top - 1, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, left, bottom, STEELBLUE_YUYV));
+}
+
+static void testSquareFaceIsCenteredKeepingAspect(void)
+{
+    static uint8_t square_face_pixels[60 * 60 * 4];
+    static uint8_t square_mouth_pixels[60 * 60 * 4];
+    RgbaImage square_face = {60, 60, square_face_pixels};
+    RgbaImage square_mouth = {60, 60, square_mouth_pixels};
+    paint(&square_face, 0, 0, 60, 60, WHITE);
+    paint(&square_mouth, 20, 40, 20, 5, BLACK);
+    assert(BuildScene(&square_face, &square_mouth, NULL, 100));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    assert(pairIs(closed_frame, 38, 0, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 40, 0, WHITE_YUYV));
+    assert(pairIs(closed_frame, 278, UVC_FRAME_HEIGHT - 1, WHITE_YUYV));
+    assert(pairIs(closed_frame, 280, 0, STEELBLUE_YUYV));
+}
+
+static void testSquareFaceShrinksAroundFrameCenter(void)
+{
+    static uint8_t square_face_pixels[60 * 60 * 4];
+    static uint8_t square_mouth_pixels[60 * 60 * 4];
+    RgbaImage square_face = {60, 60, square_face_pixels};
+    RgbaImage square_mouth = {60, 60, square_mouth_pixels};
+    paint(&square_face, 0, 0, 60, 60, WHITE);
+    paint(&square_mouth, 20, 40, 20, 5, BLACK);
+    assert(BuildScene(&square_face, &square_mouth, NULL, 50));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    assert(pairIs(closed_frame, 98, 60, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 100, 60, WHITE_YUYV));
+    assert(pairIs(closed_frame, 100, 59, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 218, 179, WHITE_YUYV));
+    assert(pairIs(closed_frame, 220, 179, STEELBLUE_YUYV));
+    assert(pairIs(closed_frame, 218, 180, STEELBLUE_YUYV));
+}
+
+static void testFaceKeepsItsColor(void)
+{
+    drawTestCanvases();
+    paint(&face, FACE_LEFT, FACE_TOP, 10, 10, RED);
+    fillTestFrames();
+    assert(pairIs(closed_frame, FACE_LEFT * CANVAS_SCALE, FACE_TOP * CANVAS_SCALE, RED_YUYV));
+}
+
+static void testHalfTransparentFaceBlendsWithBackground(void)
+{
+    static uint8_t black_pixels[4 * 3 * 4];
+    RgbaImage black = {4, 3, black_pixels};
+    const uint8_t half_white[4] = {255, 255, 255, 128};
+    paint(&black, 0, 0, 4, 3, BLACK);
+    drawTestCanvases();
+    paint(&face, FACE_LEFT, FACE_TOP, 10, 10, half_white);
+    assert(BuildScene(&face, &mouth, &black, 100));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    const uint8_t luma = lumaAt(closed_frame, FACE_LEFT * CANVAS_SCALE, FACE_TOP * CANVAS_SCALE);
+    assert(luma > 120 && luma < 132);
+}
+
+/* 8x2 is wider than 4:3: the middle 2x2 is kept, red on the left, blue on the right */
+static void testBackgroundImageCoversFrameCenterCropped(void)
+{
+    static uint8_t wide_pixels[8 * 2 * 4];
+    RgbaImage wide = {8, 2, wide_pixels};
+    paint(&wide, 0, 0, 4, 2, RED);
+    paint(&wide, 4, 0, 4, 2, BLUE);
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, &wide, 100));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    assert(pairIs(closed_frame, 0, 0, RED_YUYV));
+    assert(pairIs(closed_frame, 158, UVC_FRAME_HEIGHT - 1, RED_YUYV));
+    assert(pairIs(closed_frame, 160, 0, BLUE_YUYV));
+    assert(pairIs(closed_frame, UVC_FRAME_WIDTH - 2, UVC_FRAME_HEIGHT - 1, BLUE_YUYV));
+}
+
+static void testMouthSizeSpansClosedLineToDrawnSize(void)
+{
+    drawTestCanvases();
+    fillTestFrames();
+    const MouthSize closed = CalcMouthSize(0, MOUTH_A);
+    const MouthSize open = CalcMouthSize(255, MOUTH_A);
+    assert(closed.width == MOUTH_WIDTH * CANVAS_SCALE && closed.height == 3);
+    assert(open.width == MOUTH_WIDTH * CANVAS_SCALE && open.height == MOUTH_HEIGHT * CANVAS_SCALE);
+}
+
+static void testMouthShapeScalesSize(void)
+{
+    drawTestCanvases();
+    fillTestFrames();
+    const MouthSize spread = CalcMouthSize(255, MOUTH_I);
+    const MouthSize rounded = CalcMouthSize(255, MOUTH_U);
+    assert(spread.width == 112 && spread.height == 22);
+    assert(rounded.width == 56 && rounded.height == 36);
+}
+
+static void testOpenMouthIsDrawnAtItsPlace(void)
+{
+    drawTestCanvases();
+    fillTestFrames();
+    const int left = MOUTH_LEFT * CANVAS_SCALE;
+    const int top = MOUTH_TOP * CANVAS_SCALE;
+    assert(pairIs(open_frame, MOUTH_CENTER_X, MOUTH_CENTER_Y, BLACK_YUYV));
+    assert(pairIs(open_frame, left, top, BLACK_YUYV));
+    assert(pairIs(open_frame, left - 2, top, WHITE_YUYV));
+    assert(pairIs(open_frame, left + MOUTH_WIDTH * CANVAS_SCALE, top, WHITE_YUYV));
+    assert(pairIs(open_frame, left, top - 1, WHITE_YUYV));
+    assert(countDark(open_frame) == MOUTH_WIDTH * MOUTH_HEIGHT * CANVAS_SCALE * CANVAS_SCALE);
+}
+
+/* Faint lips around a thin dark line between them: squashed, the line must survive */
+static void testClosedMouthKeepsItsDarkLine(void)
+{
+    const uint8_t faint[4] = {0, 0, 0, 40};
+    drawTestCanvases();
+    memset(mouth_pixels, 0, sizeof mouth_pixels);
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP, MOUTH_WIDTH, 1, faint);
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP + MOUTH_HEIGHT / 2, MOUTH_WIDTH, 1, BLACK);
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP + MOUTH_HEIGHT - 1, MOUTH_WIDTH, 1, faint);
+    fillTestFrames();
+    assert(darkRows(closed_frame) == 1);
+    assert(darkRows(open_frame) == CANVAS_SCALE);
+}
+
+static void testMouthKeepsItsColor(void)
+{
+    drawTestCanvases();
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP, MOUTH_WIDTH, MOUTH_HEIGHT, RED);
+    fillTestFrames();
+    assert(pairIs(open_frame, MOUTH_CENTER_X, MOUTH_CENTER_Y, RED_YUYV));
 }
 
 static void testMouthGrowsWithOpenness(void)
 {
+    drawTestCanvases();
     fillTestFrames();
-    assert(countMouthInk(closed_frame) < countMouthInk(half_frame));
-    assert(countMouthInk(half_frame) < countMouthInk(open_frame));
+    assert(countDark(closed_frame) < countDark(half_frame));
+    assert(countDark(half_frame) < countDark(open_frame));
 }
 
-static void testMouthShapeChangesWidth(void)
+static void testHalfTransparentMouthBlendsOverFace(void)
 {
-    static uint8_t spread[UVC_FRAME_BYTES];
-    static uint8_t rounded[UVC_FRAME_BYTES];
+    const uint8_t half_black[4] = {0, 0, 0, 128};
+    drawTestCanvases();
+    paint(&mouth, MOUTH_LEFT, MOUTH_TOP, MOUTH_WIDTH, MOUTH_HEIGHT, half_black);
     fillTestFrames();
-    FillMouthFrame(spread, 255, MOUTH_I);
-    FillMouthFrame(rounded, 255, MOUTH_U);
-    assert(mouthInkWidth(spread) > mouthInkWidth(open_frame));
-    assert(mouthInkWidth(rounded) < mouthInkWidth(open_frame));
+    const uint8_t luma = lumaAt(open_frame, MOUTH_CENTER_X, MOUTH_CENTER_Y);
+    assert(luma > 120 && luma < 132);
+}
+
+static void testEasedMouthMovesPartWayToTarget(void)
+{
+    const MouthSize current = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    const MouthSize eased = EaseMouthSize(current, target);
+    assert(eased.width > 10 && eased.width < 50);
+    assert(eased.height < 10 && eased.height > 3);
+}
+
+static void testEasedMouthReachesTarget(void)
+{
+    MouthSize size = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    int frame = 0;
+    while (frame < 15) {
+        size = EaseMouthSize(size, target);
+        frame++;
+    }
+    assert(size.width == target.width && size.height == target.height);
+}
+
+static void fillUniform(uint8_t *frame, uint8_t luma, uint8_t chroma)
+{
+    int offset = 0;
+    while (offset < UVC_FRAME_BYTES) {
+        frame[offset] = luma;
+        frame[offset + 1] = chroma;
+        offset += 2;
+    }
+}
+
+static int countLit(const uint8_t *frame)
+{
+    int count = 0;
+    int offset = 0;
+    while (offset < UVC_FRAME_BYTES) {
+        count += frame[offset] > 64;
+        offset += 2;
+    }
+    return count;
+}
+
+static int litOfUniform(uint8_t luma)
+{
+    static uint8_t frame[UVC_FRAME_BYTES];
+    static uint8_t ascii[UVC_FRAME_BYTES];
+    fillUniform(frame, luma, 128);
+    RenderAscii(ascii, frame);
+    return countLit(ascii);
+}
+
+static void testAsciiDarkFrameIsBlank(void)
+{
+    assert(litOfUniform(16) == 0);
+}
+
+static void testAsciiBrighterCellsUseDenserGlyphs(void)
+{
+    assert(litOfUniform(80) > 0);
+    assert(litOfUniform(80) < litOfUniform(160));
+    assert(litOfUniform(160) < litOfUniform(235));
+}
+
+static void testAsciiGlyphsKeepCellColor(void)
+{
+    static uint8_t frame[UVC_FRAME_BYTES];
+    static uint8_t ascii[UVC_FRAME_BYTES];
+    fillUniform(frame, 200, 60);
+    RenderAscii(ascii, frame);
+    assert(ascii[1] == 60 && ascii[UVC_FRAME_BYTES - 1] == 60);
+}
+
+static void testAsciiMouthOpensAndBackgroundStays(void)
+{
+    static uint8_t closed[UVC_FRAME_BYTES];
+    static uint8_t open[UVC_FRAME_BYTES];
+    static uint8_t ascii[UVC_FRAME_BYTES];
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    FillAsciiMouthFrame(closed, CalcMouthSize(0, MOUTH_A));
+    FillAsciiMouthFrame(open, CalcMouthSize(255, MOUTH_A));
+    assert(memcmp(closed, open, UVC_FRAME_BYTES) != 0);
+    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_A));
+    RenderAscii(ascii, open_frame);
+    assert(memcmp(ascii, open, UVC_FRAME_BYTES) == 0);
+}
+
+static void testAsciiFollowsANewScene(void)
+{
+    static uint8_t frame[UVC_FRAME_BYTES];
+    static uint8_t ascii[UVC_FRAME_BYTES];
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
+    paint(&face, FACE_LEFT, FACE_TOP, FACE_SIZE, FACE_SIZE, RED);
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    RenderAscii(ascii, closed_frame);
+    assert(memcmp(ascii, frame, UVC_FRAME_BYTES) == 0);
 }
 
 static void testAdcAtBiasIsSilence(void)
@@ -671,10 +961,134 @@ static void testTrackerKeepsUAndIApartAtNormalVolume(void)
     assert(trackNormalVoice(templates, VOWEL_I, MOUTH_U) == MOUTH_I);
 }
 
+static void testConfigDefaults(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(strcmp(config.face, "/root/face.png") == 0);
+    assert(strcmp(config.mouth, "/root/mouth.png") == 0);
+    assert(config.background[0] == '\0');
+    assert(config.face_scale_percent == 85);
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(!config.ascii);
+    assert(config.mouth_scales[MOUTH_I].width_percent == 140 && config.mouth_scales[MOUTH_I].height_percent == 55);
+}
+
+static void testConfigLineSetsNumber(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "ease_percent=30\n", "/root"));
+    assert(config.ease_percent == 30);
+    assert(ReadConfigLine(&config, " face_scale = 70 ", "/root"));
+    assert(config.face_scale_percent == 70);
+    assert(ReadConfigLine(&config, "ascii=1", "/root"));
+    assert(config.ascii);
+}
+
+static void testConfigSkipsCommentsAndBlankLines(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "# ease_percent=30\n", "/root"));
+    assert(ReadConfigLine(&config, "\n", "/root"));
+    assert(ReadConfigLine(&config, "", "/root"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+}
+
+static void testConfigRejectsUnknownKeyAndBadValue(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(!ReadConfigLine(&config, "speed=3", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=0", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=101", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=fast", "/root"));
+    assert(!ReadConfigLine(&config, "face_scale=0", "/root"));
+    assert(!ReadConfigLine(&config, "mouth_i=0x55", "/root"));
+    assert(!ReadConfigLine(&config, "mouth_i=140", "/root"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(config.face_scale_percent == 85);
+    assert(config.mouth_scales[MOUTH_I].width_percent == 140);
+}
+
+static void testConfigSetsMouthScale(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "mouth_u=60x120", "/root"));
+    assert(config.mouth_scales[MOUTH_U].width_percent == 60 && config.mouth_scales[MOUTH_U].height_percent == 120);
+}
+
+static void testConfigPathsAreRelativeToItsDirectory(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "background=ajito.jpg", "/root"));
+    assert(strcmp(config.background, "/root/ajito.jpg") == 0);
+    assert(ReadConfigLine(&config, "face=/tmp/girl.png", "/root"));
+    assert(strcmp(config.face, "/tmp/girl.png") == 0);
+}
+
+static void testConfigFileIsRead(void)
+{
+    const char text[] = "# trial\nease_percent=40\nbogus=1\nmouth=lips.png\n";
+    writeFile("test.conf", (const uint8_t *)text, sizeof text - 1);
+    Config config;
+    assert(LoadConfig(&config, "test.conf"));
+    assert(config.ease_percent == 40);
+    assert(strcmp(config.mouth, "./lips.png") == 0);
+    assert(strcmp(config.face, "./face.png") == 0);
+    remove("test.conf");
+}
+
+static void testMissingConfigFileKeepsDefaults(void)
+{
+    Config config;
+    assert(!LoadConfig(&config, "/nonexistent/vcamera.conf"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(strcmp(config.face, "/nonexistent/face.png") == 0);
+}
+
+/* Run from vcamera/: the shipped file must spell out exactly the defaults */
+static void testShippedConfigHoldsTheDefaults(void)
+{
+    Config shipped = {0};
+    Config defaults = {0};
+    assert(LoadConfig(&shipped, "vcamera.conf"));
+    SetDefaultConfig(&defaults, ".");
+    assert(memcmp(&shipped, &defaults, sizeof shipped) == 0);
+}
+
+static void testEasePercentSetsStep(void)
+{
+    const MouthSize current = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    SetMouthMotion(100, DEFAULT_MOUTH_SCALES);
+    const MouthSize eased = EaseMouthSize(current, target);
+    SetMouthMotion(DEFAULT_EASE_PERCENT, DEFAULT_MOUTH_SCALES);
+    assert(eased.width == 50 && eased.height == 3);
+}
+
+static void testMouthScalesSetSize(void)
+{
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    const MouthSize wide = CalcMouthSize(255, MOUTH_I);
+    MouthScale scales[MOUTH_SHAPE_COUNT];
+    memcpy(scales, DEFAULT_MOUTH_SCALES, sizeof scales);
+    scales[MOUTH_I].width_percent = 70;
+    SetMouthMotion(DEFAULT_EASE_PERCENT, scales);
+    const MouthSize narrow = CalcMouthSize(255, MOUTH_I);
+    SetMouthMotion(DEFAULT_EASE_PERCENT, DEFAULT_MOUTH_SCALES);
+    assert(narrow.width * 2 == wide.width || narrow.width * 2 + 1 == wide.width);
+    assert(narrow.height == wide.height);
+}
+
 int main(void)
 {
     testTrackerKeepsUAndIApartAtNormalVolume();
-    testMouthShapeChangesWidth();
     testTrackerUpdatesShapeOncePerFrame();
     testTrackerSwitchesWithinFourFrames();
     testTrackerIgnoresOneStrayFrame();
@@ -707,9 +1121,40 @@ int main(void)
     testProbeSetCurAcceptsData();
     testProbeShortRequestIsTruncated();
     testRequestsOutsideStreamingInterfaceStall();
-    testArtFaceIsCopiedOntoPaper();
-    testClosedMouthIsAThinLine();
+    testSceneRejectsMouthOfAnotherSize();
+    testSceneRejectsTransparentMouth();
+    testPlainSceneIsSolidBackgroundAtAnyOpenness();
+    testFaceFitsFrameOverDefaultBackground();
+    testSquareFaceIsCenteredKeepingAspect();
+    testSquareFaceShrinksAroundFrameCenter();
+    testFaceKeepsItsColor();
+    testHalfTransparentFaceBlendsWithBackground();
+    testBackgroundImageCoversFrameCenterCropped();
+    testMouthSizeSpansClosedLineToDrawnSize();
+    testMouthShapeScalesSize();
+    testOpenMouthIsDrawnAtItsPlace();
+    testClosedMouthKeepsItsDarkLine();
+    testMouthKeepsItsColor();
     testMouthGrowsWithOpenness();
+    testHalfTransparentMouthBlendsOverFace();
+    testAsciiDarkFrameIsBlank();
+    testAsciiBrighterCellsUseDenserGlyphs();
+    testAsciiGlyphsKeepCellColor();
+    testAsciiMouthOpensAndBackgroundStays();
+    testAsciiFollowsANewScene();
+    testEasedMouthMovesPartWayToTarget();
+    testEasedMouthReachesTarget();
+    testConfigDefaults();
+    testConfigLineSetsNumber();
+    testConfigSkipsCommentsAndBlankLines();
+    testConfigRejectsUnknownKeyAndBadValue();
+    testConfigSetsMouthScale();
+    testConfigPathsAreRelativeToItsDirectory();
+    testConfigFileIsRead();
+    testMissingConfigFileKeepsDefaults();
+    testShippedConfigHoldsTheDefaults();
+    testEasePercentSetsStep();
+    testMouthScalesSetSize();
     puts("ok");
     return 0;
 }

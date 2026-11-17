@@ -2,6 +2,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stb_image.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +14,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/g_uvc.h>
 #include <linux/videodev2.h>
+#include "config.h"
 #include "display.h"
 #include "lipsync.h"
 #include "uvc_control.h"
@@ -26,8 +29,8 @@ typedef struct {
     int streaming_interface;
     bool streaming;
     void *buffers[BUFFER_COUNT];
-    uint8_t openness;
-    MouthShape shape;
+    MouthSize mouth;
+    bool ascii;
 } Camera;
 
 static Camera camera = {.video = -1};
@@ -44,8 +47,66 @@ static bool readStreamingInterface(void)
     return read;
 }
 
+static bool loadImage(const char *path, RgbaImage *image)
+{
+    int channels;
+    image->pixels = stbi_load(path, &image->width, &image->height, &channels, 4);
+    if (image->pixels == NULL) {
+        fprintf(stderr, "%s: %s\n", path, stbi_failure_reason());
+        return false;
+    }
+    return true;
+}
+
+/* vcamera.conf next to the executable: usb-uvc-ncm.sh starts us from wherever ssh landed */
+static void loadConfig(Config *config)
+{
+    char path[PATH_MAX];
+    const ssize_t length = readlink("/proc/self/exe", path, sizeof path - 1);
+    if (length < 0) {
+        snprintf(path, sizeof path, "./%s", CONFIG_FILE_NAME);
+    } else {
+        path[length] = '\0';
+        char *const slash = strrchr(path, '/');
+        snprintf(slash + 1, sizeof path - (size_t)(slash + 1 - path), "%s", CONFIG_FILE_NAME);
+    }
+    if (!LoadConfig(config, path)) {
+        fprintf(stderr, "%s not found; using the defaults\n", path);
+    }
+}
+
+static bool loadScene(const Config *config)
+{
+    const bool has_background = config->background[0] != '\0';
+    RgbaImage face = {0};
+    RgbaImage mouth = {0};
+    RgbaImage background = {0};
+    bool built = loadImage(config->face, &face) && loadImage(config->mouth, &mouth) &&
+                 (!has_background || loadImage(config->background, &background));
+    if (built) {
+        built = BuildScene(&face, &mouth, has_background ? &background : NULL, config->face_scale_percent);
+        if (!built) {
+            fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
+                    config->face, face.width, face.height, config->mouth, mouth.width, mouth.height);
+        }
+    }
+    stbi_image_free(face.pixels);
+    stbi_image_free(mouth.pixels);
+    stbi_image_free(background.pixels);
+    return built;
+}
+
 static bool openCamera(void)
 {
+    Config config;
+    loadConfig(&config);
+    SetMouthMotion(config.ease_percent, config.mouth_scales);
+    camera.ascii = config.ascii;
+    /* Exiting would leave the UVC requests unanswered and take NCM (ssh) down with them */
+    if (!loadScene(&config)) {
+        fputs("showing the plain background instead\n", stderr);
+        BuildPlainScene();
+    }
     if (!readStreamingInterface()) {
         return false;
     }
@@ -88,7 +149,11 @@ static void answerSetup(const struct usb_ctrlrequest *control_request)
 
 static bool queueFrame(unsigned int index)
 {
-    FillMouthFrame(camera.buffers[index], camera.openness, camera.shape);
+    if (camera.ascii) {
+        FillAsciiMouthFrame(camera.buffers[index], camera.mouth);
+    } else {
+        FillMouthFrame(camera.buffers[index], camera.mouth);
+    }
     struct v4l2_buffer buffer = {
         .type = V4L2_BUF_TYPE_VIDEO_OUTPUT,
         .memory = V4L2_MEMORY_MMAP,
@@ -208,8 +273,7 @@ void ShowMouth(uint8_t openness, MouthShape shape)
     if (camera.video < 0 && !openCamera()) {
         exit(1);
     }
-    camera.openness = openness;
-    camera.shape = shape;
+    camera.mouth = EaseMouthSize(camera.mouth, CalcMouthSize(openness, shape));
     handleEvents();
     if (camera.streaming) {
         refillBuffers();
