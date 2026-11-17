@@ -19,6 +19,9 @@ calibrate: build/vcamera-calibrate
 test: build/test_vcamera
 	build/test_vcamera
 
+image kernel:
+	./build.sh $@
+
 build:
 	mkdir -p $@
 
@@ -45,4 +48,4 @@ build/vcamera-calibrate: src/linux/calibrate.c $(HEADERS) | build
 clean:
 	rm -f build/test_vcamera build/vcamera-reader build/vcamera-uvc build/vcamera-calibrate build/stb_impl.duo.o
 
-.PHONY: reader uvc calibrate test clean
+.PHONY: reader uvc calibrate test image kernel clean

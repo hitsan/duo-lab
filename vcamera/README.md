@@ -20,7 +20,7 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 | `src/linux/` | Linux の実装 (共有メモリの読み取り、UVC、設定ファイル、キャリブレーション) |
 | `test/` | ホストで動くテスト |
 | `sdk/` | `duo-buildroot-sdk` に当てる変更 |
-| `build.sh` | SDK をビルドして SD イメージを作る |
+| `build.sh` | SDK をビルドして SD イメージを作る (`make image` / `make kernel` から呼ぶ) |
 | `usb-uvc-ncm.sh` | Duo 上で USB を UVC + NCM にする |
 | `build/` | ビルドの成果物 (git 管理外) |
 
@@ -35,11 +35,11 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 ### 1. SD イメージを作って焼く
 
 ```sh
-./build.sh image          # SD イメージ全体。duo-buildroot-sdk/out/ にできる
-./build.sh kernel         # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
+make image                # SD イメージ全体。duo-buildroot-sdk/out/ にできる
+make kernel               # boot.sd だけ作る。SD の FAT 領域の boot.sd を置き換える
 ```
 
-`build.sh` は submodule と host-tools を取得し、`sdk/` の変更を当ててからビルドする。当たっているかを確かめてから当てるので、何度実行しても結果は同じ。
+`make image` / `make kernel` は `build.sh` を呼ぶ。`build.sh` は submodule と host-tools を取得し、`sdk/` の変更を当ててからビルドする。当たっているかを確かめてから当てるので、何度実行しても結果は同じ。
 
 ### 2. 絵を用意する
 
@@ -101,7 +101,7 @@ make calibrate
 scp -O build/vcamera-calibrate root@192.168.42.1:
 ssh -t root@192.168.42.1 './vcamera-calibrate > vowel_templates.h'
 scp -O root@192.168.42.1:vowel_templates.h src/rtos/
-./build.sh image          # テンプレートは小コアに埋め込まれるので、イメージを作り直す
+make image                # テンプレートは小コアに埋め込まれるので、イメージを作り直す
 ```
 
 あ・い・う・え・お の順に、Enter を押してから 3 秒ずつ伸ばして発音する。テンプレートを作るのに必要な有声フレームが足りなければ、その母音だけやり直しを求められる。
