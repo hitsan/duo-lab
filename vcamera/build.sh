@@ -10,6 +10,8 @@ LINUX_DEFCONFIG=$SDK_DIR/build/boards/cv180x/cv1800b_milkv_duo_sd/linux/cvitek_c
 
 # duo-examples/envsetup.sh (loaded by .envrc) exports these for userland builds; the SDK uses CHIP itself
 unset CC CFLAGS LDFLAGS CHIP TOOLCHAIN_PREFIX
+# Run from make, the SDK's $(make print-...) would capture "make[1]: Entering directory" into its flags
+unset MAKEFLAGS MFLAGS MAKELEVEL
 
 fail()
 {
