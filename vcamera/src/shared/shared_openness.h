@@ -9,7 +9,7 @@
 /* VowelFeature of the last 32ms frame, read by vcamera-calibrate. Its own 64-byte cache line */
 #define SHARED_FEATURE_OFFSET 64u
 
-#include "vowel.h"
+#include "vowel_types.h"
 /* Small core only */
 void ShareVowelFeature(const VowelFeature *feature);
 

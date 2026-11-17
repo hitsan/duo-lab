@@ -1,9 +1,13 @@
 #include <stdio.h>
 #include "display.h"
-#include "lipsync.h"
 
 #define MOUTH_SHAPES 5
 #define BAR_CELLS 20
+
+static int selectMouthRow(uint8_t openness)
+{
+    return (openness * (MOUTH_SHAPES - 1) + 127) / 255;
+}
 
 /* Always print the same number of lines so the screen doesn't shift */
 static void drawMouth(int shape)
@@ -46,7 +50,7 @@ void ShowMouth(uint8_t openness, MouthShape shape)
     }
     printf("\033[H");
     printf("\n     ●       ●     \n\n");
-    drawMouth(SelectMouthShape(openness, MOUTH_SHAPES));
+    drawMouth(selectMouthRow(openness));
     drawStatus(frame_count, openness, shape);
     fflush(stdout);
     frame_count++;

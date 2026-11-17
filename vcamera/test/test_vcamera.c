@@ -45,13 +45,6 @@ static void testVoiceLevelFallsSlowerThanItRises(void)
     assert(level > 0.37f);  /* does not fall to 1 - 0.63 within 25ms */
 }
 
-static void testMouthShapeSpansClosedToWidest(void)
-{
-    assert(SelectMouthShape(0, 5) == 0);
-    assert(SelectMouthShape(255, 5) == 4);
-    assert(SelectMouthShape(128, 5) == 2);
-}
-
 static void writeFile(const char *path, const uint8_t *data, size_t size)
 {
     FILE *const file = fopen(path, "wb");
@@ -965,7 +958,6 @@ int main(void)
     testOpennessBelowClosedDbIsZero();
     testVoiceLevelReaches63PercentAfterRiseTime();
     testVoiceLevelFallsSlowerThanItRises();
-    testMouthShapeSpansClosedToWidest();
     testProbeGetCurAnswersFormat();
     testProbeMinMaxDefAnswerSameFormat();
     testProbeInfoAndLength();

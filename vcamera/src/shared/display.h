@@ -2,7 +2,7 @@
 #define DISPLAY_H
 
 #include <stdint.h>
-#include "vowel.h"
+#include "vowel_types.h"
 
 #define DISPLAY_FPS 30
 

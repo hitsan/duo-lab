@@ -14,11 +14,6 @@ float SmoothVoiceLevel(float level, float sample)
     return level + rate * (sample - level);
 }
 
-int SelectMouthShape(uint8_t openness, int shape_count)
-{
-    return (openness * (shape_count - 1) + 127) / 255;
-}
-
 uint8_t CalcMouthOpenness(float level, float closed_db, float full_open_db)
 {
     if (level <= 0.0f) {

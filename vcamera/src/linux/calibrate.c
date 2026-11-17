@@ -6,7 +6,7 @@
 #include <sys/mman.h>
 #include <time.h>
 #include "shared_openness.h"
-#include "vowel.h"
+#include "vowel_types.h"
 
 #define RECORD_SECONDS 3
 #define POLL_MS 32

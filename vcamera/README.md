@@ -15,8 +15,9 @@ MAX9814 ─GP26→ 小コア (FreeRTOS)                       Linux             
 
 | パス | 中身 |
 |---|---|
-| `src/` | C のソース。ホスト・Linux・小コアで共有する |
-| `rtos/` | 小コア専用の実装 (ADC 読み取り、共有メモリへの書き込み、FreeRTOS タスク) |
+| `src/shared/` | 小コアと Linux の取り決め (共有メモリの配置、口の形などの型、`ShowMouth`) |
+| `src/rtos/` | 小コアの実装 (ADC 読み取り、口の開き、母音判定、共有メモリへの書き込み、FreeRTOS タスク) |
+| `src/linux/` | Linux の実装 (共有メモリの読み取り、UVC、設定ファイル、キャリブレーション) |
 | `test/` | ホストで動くテスト |
 | `sdk/` | `duo-buildroot-sdk` に当てる変更 |
 | `build.sh` | SDK をビルドして SD イメージを作る |
@@ -93,13 +94,13 @@ ease_percent=40
 
 ## 母音のキャリブレーション
 
-口の形は、5 母音のテンプレート (`src/vowel_templates.h`) のうち最も近いものから選ぶ。声やマイクを変えたら取り直す。
+口の形は、5 母音のテンプレート (`src/rtos/vowel_templates.h`) のうち最も近いものから選ぶ。声やマイクを変えたら取り直す。
 
 ```sh
 make calibrate
 scp -O build/vcamera-calibrate root@192.168.42.1:
 ssh -t root@192.168.42.1 './vcamera-calibrate > vowel_templates.h'
-scp -O root@192.168.42.1:vowel_templates.h src/
+scp -O root@192.168.42.1:vowel_templates.h src/rtos/
 ./build.sh image          # テンプレートは小コアに埋め込まれるので、イメージを作り直す
 ```
 
@@ -109,20 +110,20 @@ scp -O root@192.168.42.1:vowel_templates.h src/
 
 ### 口の開き
 
-`src/lipsync.c` が声の包絡を dB にし、閉じる dB と全開の dB の間を 0〜255 に割り当てる。包絡の追従速さは `RISE_MS` / `FALL_MS` で決める。
+`src/rtos/lipsync.c` が声の包絡を dB にし、閉じる dB と全開の dB の間を 0〜255 に割り当てる。包絡の追従速さは `RISE_MS` / `FALL_MS` で決める。
 
 | 定数 | 場所 | 用途 |
 |---|---|---|
-| `RISE_MS` `FALL_MS` | `src/lipsync.c` | 包絡が立ち上がる・下がる速さ |
-| `MIC_CLOSED_DB` `MIC_FULL_OPEN_DB` | `rtos/vcamera_task.c` | 小コア (実マイク) のしきい値 |
+| `RISE_MS` `FALL_MS` | `src/rtos/lipsync.c` | 包絡が立ち上がる・下がる速さ |
+| `MIC_CLOSED_DB` `MIC_FULL_OPEN_DB` | `src/rtos/vcamera_task.c` | 小コア (実マイク) のしきい値 |
 
 ### 口の形
 
-`src/vowel.c` が 32ms ごとに FFT をかけ、150〜2500Hz を 10 帯域に分ける。無音中に学習したノイズを差し引いてから log をとり、平均を除いて音量の影響を消す。この特徴量にいちばん近い母音テンプレートを選び、3 つの口の形に対応させる (え は い と同じ横長、お は う と同じ丸)。ただし お の音は う より あ に近いので、判定そのものは 5 母音で行う。
+`src/rtos/vowel.c` が 32ms ごとに FFT をかけ、150〜2500Hz を 10 帯域に分ける。無音中に学習したノイズを差し引いてから log をとり、平均を除いて音量の影響を消す。この特徴量にいちばん近い母音テンプレートを選び、3 つの口の形に対応させる (え は い と同じ横長、お は う と同じ丸)。ただし お の音は う より あ に近いので、判定そのものは 5 母音で行う。
 
 ### 共有メモリ
 
-FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_openness.h`)。
+FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared/shared_openness.h`)。
 
 | オフセット | 中身 |
 |---|---|
@@ -133,15 +134,15 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 
 ### 入出力の切り替え
 
-入力は `src/mic.h`、出力は `src/display.h` で抽象化していて、どの実装を使うかはリンク時に決まる。
+入力は `src/rtos/mic.h`、出力は `src/shared/display.h` で抽象化していて、どの実装を使うかはリンク時に決まる。
 
 | ターゲット | 入力 (`mic.h`) | 出力 (`display.h`) |
 |---|---|---|
-| 小コア | `rtos/mic_adc.c` (SARADC ch1 を `rdtime` で 8kHz ポーリング) | `rtos/display_shared.c` (共有メモリ) |
-| `vcamera-uvc` | 共有メモリ (`src/reader.c`) | `src/display_uvc.c` (`/dev/video0`) |
-| `vcamera-reader` | 共有メモリ (`src/reader.c`) | `src/display_terminal.c` |
+| 小コア | `src/rtos/mic_adc.c` (SARADC ch1 を `rdtime` で 8kHz ポーリング) | `src/rtos/display_shared.c` (共有メモリ) |
+| `vcamera-uvc` | 共有メモリ (`src/linux/reader.c`) | `src/linux/display_uvc.c` (`/dev/video0`) |
+| `vcamera-reader` | 共有メモリ (`src/linux/reader.c`) | `src/linux/display_terminal.c` |
 
-`src/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。起動時に 1 回だけ、`face.png` をフレームに合わせて縮小し (縮小先の 1 画素に入る元画素を平均する)、背景にアルファブレンドして YUYV (BT.601, limited range) にしておく。`mouth.png` も同じ変換で縮小し、口の矩形の分だけ Y・U・V・alpha で持っておく。毎フレームはそのフレームをコピーし、口を元の中心のまわりで伸縮させて (最近傍) アルファブレンドするだけ。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する (`mouth_a` `mouth_i` `mouth_u`)。閉じているときは 3 行 (`MOUTH_CLOSED_HEIGHT`) に潰し、潰した行のうち最も不透明な画素を残すので、唇の線が消えずに線として残る。
+`src/rtos/adc_sample.c` は、ADC の生値 (約 1500 のバイアス付き 12bit) からバイアスを追従して引き、16bit のサンプルにする。`src/linux/uvc_control.c` は UVC の制御要求への応答とフレームの描画を担当する。起動時に 1 回だけ、`face.png` をフレームに合わせて縮小し (縮小先の 1 画素に入る元画素を平均する)、背景にアルファブレンドして YUYV (BT.601, limited range) にしておく。`mouth.png` も同じ変換で縮小し、口の矩形の分だけ Y・U・V・alpha で持っておく。毎フレームはそのフレームをコピーし、口を元の中心のまわりで伸縮させて (最近傍) アルファブレンドするだけ。口は開き具合に応じて縦に、口の形に応じて縦横に伸縮する (`mouth_a` `mouth_i` `mouth_u`)。閉じているときは 3 行 (`MOUTH_CLOSED_HEIGHT`) に潰し、潰した行のうち最も不透明な画素を残すので、唇の線が消えずに線として残る。
 
 ### 口の動きをなめらかにする
 
@@ -152,7 +153,7 @@ FreeRTOS 領域の最後のページ `0x83FFF000` を使う (`src/shared_opennes
 | ファイル | 内容 |
 |---|---|
 | `linux.config` | カーネルの defconfig に足す行。UVC gadget を有効にする |
-| `rtos.patch` | FreeRTOS に `src/` と `rtos/` を組み込み、vcamera タスクを起動する |
+| `rtos.patch` | FreeRTOS に `src/shared/` と `src/rtos/` を組み込み、vcamera タスクを起動する |
 | `uboot.patch` | カーネル引数に `clk_ignore_unused` を足す。Linux の `clk_disable_unused` が小コアしか使わない `clk_saradc` を止め、ADC が固まるのを防ぐ |
 
 ## デバッグ用
