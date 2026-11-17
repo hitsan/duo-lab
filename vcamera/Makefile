@@ -3,6 +3,7 @@ INCLUDE := -Isrc/shared -Isrc/linux
 HOST_CFLAGS := -std=c11 -Og -g $(WARN) $(INCLUDE) -Isrc/rtos
 DUO_CFLAGS = $(CFLAGS) $(WARN) $(INCLUDE)
 STB_INCLUDE := -isystem ../sobel/third_party
+DUO ?= root@192.168.42.1
 check-duo = $(if $(TOOLCHAIN_PREFIX),,$(error run 'source /PATH/TO/duo-examples/envsetup.sh' first))
 
 HEADERS := $(wildcard src/*/*.h)
@@ -18,6 +19,14 @@ test: build/test_vcamera
 
 image kernel:
 	./build.sh $@
+
+# Overwriting the running vcamera-uvc takes NCM down, so swap it in by rename and reboot
+install: build/vcamera-uvc
+	scp -O build/vcamera-uvc $(DUO):vcamera-uvc.new
+	scp -O duo/usb-uvc-ncm.sh duo/vcamera.conf $(wildcard art/*.png art/*.jpg) $(DUO):
+	scp -O duo/auto.sh $(DUO):/mnt/data/
+	ssh $(DUO) 'mv vcamera-uvc.new vcamera-uvc'
+	-ssh $(DUO) reboot
 
 build:
 	mkdir -p $@
@@ -41,4 +50,4 @@ build/vcamera-calibrate: tools/calibrate.c $(HEADERS) | build
 clean:
 	rm -f build/test_vcamera build/vcamera-uvc build/vcamera-calibrate build/stb_impl.duo.o
 
-.PHONY: uvc calibrate test image kernel clean
+.PHONY: uvc calibrate test image kernel install clean
