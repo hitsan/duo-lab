@@ -31,6 +31,16 @@ typedef struct {
     int height;
 } MouthSize;
 
+/* Fully open mouth size per shape, in percent of the drawn mouth */
+typedef struct {
+    int width_percent;
+    int height_percent;
+} MouthScale;
+
+/* Share of the remaining distance covered per 30fps frame: about 3 frames to settle */
+#define DEFAULT_EASE_PERCENT 50
+extern const MouthScale DEFAULT_MOUTH_SCALES[MOUTH_SHAPE_COUNT];
+
 /* 4 bytes per pixel, straight alpha */
 typedef struct {
     int width;
@@ -45,6 +55,8 @@ void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcRes
 bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background, int scale_percent);
 /* The default background alone, with no mouth: what to show when the images cannot be used */
 void BuildPlainScene(void);
+/* ease_percent of the remaining distance per frame, and the fully open size per shape */
+void SetMouthMotion(int ease_percent, const MouthScale scales[MOUTH_SHAPE_COUNT]);
 /* From a line (openness 0) to the shape's full size (255) */
 MouthSize CalcMouthSize(uint8_t openness, MouthShape shape);
 /* One frame's step toward target, so openness and shape changes blend over a few frames */

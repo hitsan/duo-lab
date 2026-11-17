@@ -2,7 +2,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <libgen.h>
 #include <limits.h>
 #include <stb_image.h>
 #include <stdbool.h>
@@ -15,6 +14,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/g_uvc.h>
 #include <linux/videodev2.h>
+#include "config.h"
 #include "display.h"
 #include "lipsync.h"
 #include "uvc_control.h"
@@ -58,57 +58,36 @@ static bool loadImage(const char *path, RgbaImage *image)
     return true;
 }
 
-/* $variable, or name next to the executable: usb-uvc-ncm.sh starts us from wherever ssh landed */
-static void imagePath(char *path, const char *variable, const char *name)
+/* vcamera.conf next to the executable: usb-uvc-ncm.sh starts us from wherever ssh landed */
+static void loadConfig(Config *config)
 {
-    const char *const given = getenv(variable);
-    if (given != NULL) {
-        snprintf(path, PATH_MAX, "%s", given);
-        return;
-    }
-    char executable[PATH_MAX];
-    const ssize_t length = readlink("/proc/self/exe", executable, sizeof executable - 1);
+    char path[PATH_MAX];
+    const ssize_t length = readlink("/proc/self/exe", path, sizeof path - 1);
     if (length < 0) {
-        snprintf(path, PATH_MAX, "%s", name);
-        return;
+        snprintf(path, sizeof path, "./%s", CONFIG_FILE_NAME);
+    } else {
+        path[length] = '\0';
+        char *const slash = strrchr(path, '/');
+        snprintf(slash + 1, sizeof path - (size_t)(slash + 1 - path), "%s", CONFIG_FILE_NAME);
     }
-    executable[length] = '\0';
-    snprintf(path, PATH_MAX, "%s/%s", dirname(executable), name);
+    if (!LoadConfig(config, path)) {
+        fprintf(stderr, "%s not found; using the defaults\n", path);
+    }
 }
 
-#define DEFAULT_FACE_SCALE_PERCENT 85
-
-static int faceScalePercent(void)
+static bool loadScene(const Config *config)
 {
-    const char *const given = getenv("VCAMERA_FACE_SCALE");
-    if (given == NULL) {
-        return DEFAULT_FACE_SCALE_PERCENT;
-    }
-    const int percent = atoi(given);
-    if (percent < 1 || percent > 100) {
-        fprintf(stderr, "VCAMERA_FACE_SCALE=%s is not 1-100; using %d\n", given, DEFAULT_FACE_SCALE_PERCENT);
-        return DEFAULT_FACE_SCALE_PERCENT;
-    }
-    return percent;
-}
-
-static bool loadScene(void)
-{
-    char face_path[PATH_MAX];
-    char mouth_path[PATH_MAX];
-    imagePath(face_path, "VCAMERA_FACE", "face.png");
-    imagePath(mouth_path, "VCAMERA_MOUTH", "mouth.png");
-    const char *const background_path = getenv("VCAMERA_BACKGROUND");
+    const bool has_background = config->background[0] != '\0';
     RgbaImage face = {0};
     RgbaImage mouth = {0};
     RgbaImage background = {0};
-    bool built = loadImage(face_path, &face) && loadImage(mouth_path, &mouth) &&
-                 (background_path == NULL || loadImage(background_path, &background));
+    bool built = loadImage(config->face, &face) && loadImage(config->mouth, &mouth) &&
+                 (!has_background || loadImage(config->background, &background));
     if (built) {
-        built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL, faceScalePercent());
+        built = BuildScene(&face, &mouth, has_background ? &background : NULL, config->face_scale_percent);
         if (!built) {
             fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
-                    face_path, face.width, face.height, mouth_path, mouth.width, mouth.height);
+                    config->face, face.width, face.height, config->mouth, mouth.width, mouth.height);
         }
     }
     stbi_image_free(face.pixels);
@@ -119,15 +98,18 @@ static bool loadScene(void)
 
 static bool openCamera(void)
 {
+    Config config;
+    loadConfig(&config);
+    SetMouthMotion(config.ease_percent, config.mouth_scales);
+    camera.ascii = config.ascii;
     /* Exiting would leave the UVC requests unanswered and take NCM (ssh) down with them */
-    if (!loadScene()) {
+    if (!loadScene(&config)) {
         fputs("showing the plain background instead\n", stderr);
         BuildPlainScene();
     }
     if (!readStreamingInterface()) {
         return false;
     }
-    camera.ascii = getenv("VCAMERA_ASCII") != NULL;
     camera.video = open(VIDEO_PATH, O_RDWR | O_NONBLOCK);
     if (camera.video < 0) {
         perror(VIDEO_PATH);

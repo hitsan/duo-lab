@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "adc_sample.h"
+#include "config.h"
 #include <math.h>
 #include "vowel.h"
 #include "lipsync.h"
@@ -960,6 +961,131 @@ static void testTrackerKeepsUAndIApartAtNormalVolume(void)
     assert(trackNormalVoice(templates, VOWEL_I, MOUTH_U) == MOUTH_I);
 }
 
+static void testConfigDefaults(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(strcmp(config.face, "/root/face.png") == 0);
+    assert(strcmp(config.mouth, "/root/mouth.png") == 0);
+    assert(config.background[0] == '\0');
+    assert(config.face_scale_percent == 85);
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(!config.ascii);
+    assert(config.mouth_scales[MOUTH_I].width_percent == 140 && config.mouth_scales[MOUTH_I].height_percent == 55);
+}
+
+static void testConfigLineSetsNumber(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "ease_percent=30\n", "/root"));
+    assert(config.ease_percent == 30);
+    assert(ReadConfigLine(&config, " face_scale = 70 ", "/root"));
+    assert(config.face_scale_percent == 70);
+    assert(ReadConfigLine(&config, "ascii=1", "/root"));
+    assert(config.ascii);
+}
+
+static void testConfigSkipsCommentsAndBlankLines(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "# ease_percent=30\n", "/root"));
+    assert(ReadConfigLine(&config, "\n", "/root"));
+    assert(ReadConfigLine(&config, "", "/root"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+}
+
+static void testConfigRejectsUnknownKeyAndBadValue(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(!ReadConfigLine(&config, "speed=3", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=0", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=101", "/root"));
+    assert(!ReadConfigLine(&config, "ease_percent=fast", "/root"));
+    assert(!ReadConfigLine(&config, "face_scale=0", "/root"));
+    assert(!ReadConfigLine(&config, "mouth_i=0x55", "/root"));
+    assert(!ReadConfigLine(&config, "mouth_i=140", "/root"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(config.face_scale_percent == 85);
+    assert(config.mouth_scales[MOUTH_I].width_percent == 140);
+}
+
+static void testConfigSetsMouthScale(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "mouth_u=60x120", "/root"));
+    assert(config.mouth_scales[MOUTH_U].width_percent == 60 && config.mouth_scales[MOUTH_U].height_percent == 120);
+}
+
+static void testConfigPathsAreRelativeToItsDirectory(void)
+{
+    Config config;
+    SetDefaultConfig(&config, "/root");
+    assert(ReadConfigLine(&config, "background=ajito.jpg", "/root"));
+    assert(strcmp(config.background, "/root/ajito.jpg") == 0);
+    assert(ReadConfigLine(&config, "face=/tmp/girl.png", "/root"));
+    assert(strcmp(config.face, "/tmp/girl.png") == 0);
+}
+
+static void testConfigFileIsRead(void)
+{
+    const char text[] = "# trial\nease_percent=40\nbogus=1\nmouth=lips.png\n";
+    writeFile("test.conf", (const uint8_t *)text, sizeof text - 1);
+    Config config;
+    assert(LoadConfig(&config, "test.conf"));
+    assert(config.ease_percent == 40);
+    assert(strcmp(config.mouth, "./lips.png") == 0);
+    assert(strcmp(config.face, "./face.png") == 0);
+    remove("test.conf");
+}
+
+static void testMissingConfigFileKeepsDefaults(void)
+{
+    Config config;
+    assert(!LoadConfig(&config, "/nonexistent/vcamera.conf"));
+    assert(config.ease_percent == DEFAULT_EASE_PERCENT);
+    assert(strcmp(config.face, "/nonexistent/face.png") == 0);
+}
+
+/* Run from vcamera/: the shipped file must spell out exactly the defaults */
+static void testShippedConfigHoldsTheDefaults(void)
+{
+    Config shipped = {0};
+    Config defaults = {0};
+    assert(LoadConfig(&shipped, "vcamera.conf"));
+    SetDefaultConfig(&defaults, ".");
+    assert(memcmp(&shipped, &defaults, sizeof shipped) == 0);
+}
+
+static void testEasePercentSetsStep(void)
+{
+    const MouthSize current = {.width = 10, .height = 10};
+    const MouthSize target = {.width = 50, .height = 3};
+    SetMouthMotion(100, DEFAULT_MOUTH_SCALES);
+    const MouthSize eased = EaseMouthSize(current, target);
+    SetMouthMotion(DEFAULT_EASE_PERCENT, DEFAULT_MOUTH_SCALES);
+    assert(eased.width == 50 && eased.height == 3);
+}
+
+static void testMouthScalesSetSize(void)
+{
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    const MouthSize wide = CalcMouthSize(255, MOUTH_I);
+    MouthScale scales[MOUTH_SHAPE_COUNT];
+    memcpy(scales, DEFAULT_MOUTH_SCALES, sizeof scales);
+    scales[MOUTH_I].width_percent = 70;
+    SetMouthMotion(DEFAULT_EASE_PERCENT, scales);
+    const MouthSize narrow = CalcMouthSize(255, MOUTH_I);
+    SetMouthMotion(DEFAULT_EASE_PERCENT, DEFAULT_MOUTH_SCALES);
+    assert(narrow.width * 2 == wide.width || narrow.width * 2 + 1 == wide.width);
+    assert(narrow.height == wide.height);
+}
+
 int main(void)
 {
     testTrackerKeepsUAndIApartAtNormalVolume();
@@ -1018,6 +1144,17 @@ int main(void)
     testAsciiFollowsANewScene();
     testEasedMouthMovesPartWayToTarget();
     testEasedMouthReachesTarget();
+    testConfigDefaults();
+    testConfigLineSetsNumber();
+    testConfigSkipsCommentsAndBlankLines();
+    testConfigRejectsUnknownKeyAndBadValue();
+    testConfigSetsMouthScale();
+    testConfigPathsAreRelativeToItsDirectory();
+    testConfigFileIsRead();
+    testMissingConfigFileKeepsDefaults();
+    testShippedConfigHoldsTheDefaults();
+    testEasePercentSetsStep();
+    testMouthScalesSetSize();
     puts("ok");
     return 0;
 }

@@ -17,8 +17,6 @@
 #define MOUTH_OPAQUE_ALPHA 16
 /* Closed, the outline squashed to this many rows reads as a line */
 #define MOUTH_CLOSED_HEIGHT 3
-/* Share of the remaining distance covered per 30fps frame: about 3 frames to settle */
-#define EASE_PERCENT 50
 
 #define ASCII_CELL_SIZE 8
 #define ASCII_DARK 16
@@ -39,15 +37,18 @@ static const uint8_t ASCII_GLYPHS[][ASCII_CELL_SIZE] = {
 };
 #define ASCII_GLYPH_COUNT ((int)(sizeof ASCII_GLYPHS / sizeof ASCII_GLYPHS[0]))
 
-/* Fully open size per shape, in percent of the drawn mouth: I spread and low, U narrow */
-static const struct {
-    int width_percent;
-    int height_percent;
-} MOUTH_SCALES[MOUTH_SHAPE_COUNT] = {
+/* I spread and low, U narrow */
+const MouthScale DEFAULT_MOUTH_SCALES[MOUTH_SHAPE_COUNT] = {
     [MOUTH_A] = {100, 100},
     [MOUTH_I] = {140, 55},
     [MOUTH_U] = {70, 90},
 };
+
+static MouthScale configured_scales[MOUTH_SHAPE_COUNT];
+static struct {
+    int ease_percent;
+    const MouthScale *scales;
+} motion = {DEFAULT_EASE_PERCENT, DEFAULT_MOUTH_SCALES};
 
 typedef struct {
     int left;
@@ -362,11 +363,18 @@ static const uint8_t *mouthPixelAt(int x, int y, MouthSize size)
     return most_opaque;
 }
 
+void SetMouthMotion(int ease_percent, const MouthScale scales[MOUTH_SHAPE_COUNT])
+{
+    memcpy(configured_scales, scales, sizeof configured_scales);
+    motion.ease_percent = ease_percent;
+    motion.scales = configured_scales;
+}
+
 MouthSize CalcMouthSize(uint8_t openness, MouthShape shape)
 {
-    const int open_height = scene.mouth_area.height * MOUTH_SCALES[shape].height_percent / 100;
+    const int open_height = scene.mouth_area.height * motion.scales[shape].height_percent / 100;
     const MouthSize size = {
-        .width = scene.mouth_area.width * MOUTH_SCALES[shape].width_percent / 100,
+        .width = scene.mouth_area.width * motion.scales[shape].width_percent / 100,
         .height = MOUTH_CLOSED_HEIGHT + ((open_height - MOUTH_CLOSED_HEIGHT) * openness + 127) / 255,
     };
     return size;
@@ -375,7 +383,7 @@ MouthSize CalcMouthSize(uint8_t openness, MouthShape shape)
 /* Rounds away from current so the last pixel is reached instead of stalling */
 static int easeToward(int current, int target)
 {
-    const int step = (target - current) * EASE_PERCENT;
+    const int step = (target - current) * motion.ease_percent;
     return current + (step > 0 ? step + 99 : step - 99) / 100;
 }
 
