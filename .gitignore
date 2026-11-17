@@ -5,6 +5,5 @@
 /sobel/out.png
 /sobel/*.o
 /vcamera/*.wav
-/vcamera/art/face.png
-/vcamera/art/face_art.h
+/vcamera/*.png
 /vcamera/build/

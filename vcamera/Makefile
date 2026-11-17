@@ -1,7 +1,8 @@
 WARN := -Wall -Wextra -Werror
-INCLUDE := -Isrc -Iart
+INCLUDE := -Isrc
 HOST_CFLAGS := -std=c11 -Og -g $(WARN) $(INCLUDE)
 DUO_CFLAGS = $(CFLAGS) $(WARN) $(INCLUDE)
+STB_INCLUDE := -isystem ../sobel/third_party
 check-duo = $(if $(TOOLCHAIN_PREFIX),,$(error run 'source /PATH/TO/duo-examples/envsetup.sh' first))
 
 HEADERS := $(wildcard src/*.h)
@@ -26,7 +27,7 @@ test: build/test_vcamera
 build:
 	mkdir -p $@
 
-build/test_vcamera: $(TEST_SOURCES) $(HEADERS) art/face_art.h | build
+build/test_vcamera: $(TEST_SOURCES) $(HEADERS) | build
 	gcc $(HOST_CFLAGS) -o $@ $(TEST_SOURCES) -lm
 
 build/vcamera-host: $(PLAYER_SOURCES) $(HEADERS) | build
@@ -40,33 +41,24 @@ build/vcamera-reader: $(READER_SOURCES) $(HEADERS) | build
 	$(check-duo)
 	$(CC) $(DUO_CFLAGS) -o $@ $(READER_SOURCES) $(LDFLAGS) -lm
 
-build/vcamera-uvc: $(UVC_SOURCES) $(HEADERS) art/face_art.h | build
+# stb_image is third-party code, so it is built without our warnings
+build/stb_impl.duo.o: src/stb_impl.c | build
 	$(check-duo)
-	$(CC) $(DUO_CFLAGS) -o $@ $(UVC_SOURCES) $(LDFLAGS) -lm
+	$(CC) $(CFLAGS) $(STB_INCLUDE) -c -o $@ $<
+
+build/vcamera-uvc: $(UVC_SOURCES) $(HEADERS) build/stb_impl.duo.o | build
+	$(check-duo)
+	$(CC) $(DUO_CFLAGS) $(STB_INCLUDE) -o $@ $(UVC_SOURCES) build/stb_impl.duo.o $(LDFLAGS) -lm
 
 build/vcamera-calibrate: src/calibrate.c $(HEADERS) | build
 	$(check-duo)
 	$(CC) $(DUO_CFLAGS) -o $@ src/calibrate.c $(LDFLAGS)
-
-# The drawing stays out of git: put it at art/face.png or pass ART=path. Needs Pillow, taken from nix.
-# BACKGROUND is an image file or a color (name or '#rrggbb')
-ART ?= art/face.png
-BACKGROUND ?= steelblue
-convert-art = nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (p: [ p.pillow ])' \
-	-c python3 art/convert.py $(ART) '$(BACKGROUND)' > art/face_art.h
-
-# Always reconverts, so a new BACKGROUND takes effect
-face_art:
-	$(convert-art)
-
-art/face_art.h: $(ART) art/convert.py
-	$(convert-art)
 
 run: build/vcamera-host
 	$(if $(WAV),,$(error usage: make run WAV=path/to/voice.wav))
 	build/vcamera-host < $(WAV)
 
 clean:
-	rm -f build/test_vcamera build/vcamera-host build/vcamera build/vcamera-reader build/vcamera-uvc build/vcamera-calibrate
+	rm -f build/test_vcamera build/vcamera-host build/vcamera build/vcamera-reader build/vcamera-uvc build/vcamera-calibrate build/stb_impl.duo.o
 
-.PHONY: host duo reader uvc calibrate test face_art run clean
+.PHONY: host duo reader uvc calibrate test run clean

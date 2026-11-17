@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <string.h>
-#include "face_art.h"
 #include "uvc_control.h"
 
 #define REQUEST_TYPE_MASK 0x60
@@ -14,14 +13,8 @@
 #define PROBE_SIZE 26
 #define FRAME_INTERVAL 333333
 #define MAX_PAYLOAD_TRANSFER_SIZE 1024
-#define LUMA_INK 16
-#define LUMA_PAPER 235
-#define CHROMA_NEUTRAL 128
-#define ART_LEFT ((UVC_FRAME_WIDTH - FACE_ART_SIZE) / 2)
-#define ART_STRIDE (FACE_ART_SIZE / 8)
-#define MOUTH_STRIDE ((FACE_ART_MOUTH_WIDTH + 7) / 8)
-#define MOUTH_CENTER_X (ART_LEFT + FACE_ART_MOUTH_LEFT + FACE_ART_MOUTH_WIDTH / 2)
-#define MOUTH_CENTER_Y (FACE_ART_MOUTH_TOP + FACE_ART_MOUTH_HEIGHT / 2)
+/* AI cut-outs leave faint specks around; they must not stretch the mouth's box */
+#define MOUTH_OPAQUE_ALPHA 16
 /* Closed, the outline squashed to this many rows reads as a line */
 #define MOUTH_CLOSED_HEIGHT 3
 /* Share of the remaining distance covered per 30fps frame: about 3 frames to settle */
@@ -55,6 +48,31 @@ static const struct {
     [MOUTH_I] = {140, 55},
     [MOUTH_U] = {70, 90},
 };
+
+typedef struct {
+    int left;
+    int top;
+    int width;
+    int height;
+} Area;
+
+/* Straight alpha */
+typedef struct {
+    int red;
+    int green;
+    int blue;
+    int alpha;
+} Color;
+
+static const Color DEFAULT_BACKGROUND = {70, 130, 180, 255};  /* steelblue */
+
+static struct {
+    uint8_t face_frame[UVC_FRAME_BYTES];
+    /* Y, U, V and alpha per pixel of mouth_area */
+    uint8_t mouth[UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT * 4];
+    Area mouth_area;
+    bool ascii_face_ready;
+} scene;
 
 static void putLe16(uint8_t *bytes, uint16_t value)
 {
@@ -112,44 +130,130 @@ void AnswerUvcRequest(const UvcRequest *request, int streaming_interface, UvcRes
     response->length = request->length < PROBE_SIZE ? request->length : PROBE_SIZE;
 }
 
-static bool bitAt(const uint8_t *bitmap, int stride, int x, int y)
+static int mix(int under, int over, int alpha)
 {
-    return (bitmap[y * stride + x / 8] & (0x80 >> (x % 8))) != 0;
+    return (under * (255 - alpha) + over * alpha + 127) / 255;
 }
 
-/* (x, y) inside the drawn mouth stretched to size. Squashing ORs the source rows
-   so the outline merges into a line instead of breaking into dots */
-static bool mouthInkAt(int x, int y, MouthSize size)
+static int lumaOf(Color color)
 {
-    const int source_x = x * FACE_ART_MOUTH_WIDTH / size.width;
-    int source_y = y * FACE_ART_MOUTH_HEIGHT / size.height;
-    const int source_end = (y + 1) * FACE_ART_MOUTH_HEIGHT / size.height;
-    do {
-        if (bitAt(FACE_ART_MOUTH, MOUTH_STRIDE, source_x, source_y)) {
-            return true;
+    return (int)(16.5 + (65.481 * color.red + 128.553 * color.green + 24.966 * color.blue) / 255);
+}
+
+static int blueDifferenceOf(Color color)
+{
+    return (int)(128.5 + (-37.797 * color.red - 74.203 * color.green + 112.0 * color.blue) / 255);
+}
+
+static int redDifferenceOf(Color color)
+{
+    return (int)(128.5 + (112.0 * color.red - 93.786 * color.green - 18.214 * color.blue) / 255);
+}
+
+static bool inside(Area area, int x, int y)
+{
+    return x >= area.left && x < area.left + area.width && y >= area.top && y < area.top + area.height;
+}
+
+/* Mean of the source pixels that destination pixel (x, y) covers when source is stretched over destination */
+static Color averageArea(const RgbaImage *image, Area source, Area destination, int x, int y)
+{
+    const int left = source.left + (x - destination.left) * source.width / destination.width;
+    const int top = source.top + (y - destination.top) * source.height / destination.height;
+    const int right = source.left + (x - destination.left + 1) * source.width / destination.width;
+    const int bottom = source.top + (y - destination.top + 1) * source.height / destination.height;
+    const int end_column = right > left ? right : left + 1;
+    const int end_row = bottom > top ? bottom : top + 1;
+    int64_t red = 0;
+    int64_t green = 0;
+    int64_t blue = 0;
+    int64_t alpha = 0;
+    int row = top;
+    while (row < end_row) {
+        const uint8_t *pixel = image->pixels + (row * image->width + left) * 4;
+        int column = left;
+        while (column < end_column) {
+            red += pixel[0] * pixel[3];
+            green += pixel[1] * pixel[3];
+            blue += pixel[2] * pixel[3];
+            alpha += pixel[3];
+            pixel += 4;
+            column++;
         }
-        source_y++;
-    } while (source_y < source_end);
-    return false;
+        row++;
+    }
+    Color color = {.alpha = alpha / ((end_column - left) * (end_row - top))};
+    if (alpha > 0) {
+        color.red = red / alpha;
+        color.green = green / alpha;
+        color.blue = blue / alpha;
+    }
+    return color;
 }
 
-static void putPixel(uint8_t *frame, int x, int y, uint8_t luma)
+/* Where a width x height canvas lands when scaled to fit the frame, centered */
+static Area fitArea(int width, int height)
 {
-    uint8_t *const pixel = frame + (y * UVC_FRAME_WIDTH + x) * 2;
-    pixel[0] = luma;
-    pixel[1] = CHROMA_NEUTRAL;
+    Area area = {.width = UVC_FRAME_WIDTH, .height = UVC_FRAME_HEIGHT};
+    if (width * UVC_FRAME_HEIGHT > height * UVC_FRAME_WIDTH) {
+        area.height = height * UVC_FRAME_WIDTH / width;
+    } else {
+        area.width = width * UVC_FRAME_HEIGHT / height;
+    }
+    area.left = (UVC_FRAME_WIDTH - area.width) / 2;
+    area.top = (UVC_FRAME_HEIGHT - area.height) / 2;
+    return area;
 }
 
-/* The face on paper over the background, without the mouth; built once */
-static void fillFaceFrame(uint8_t *frame)
+/* The centered part of a width x height image that, scaled, covers the frame */
+static Area coverArea(int width, int height)
 {
-    memcpy(frame, FACE_ART_BACKGROUND, UVC_FRAME_BYTES);
+    Area area = {.width = width, .height = height};
+    if (width * UVC_FRAME_HEIGHT > height * UVC_FRAME_WIDTH) {
+        area.width = height * UVC_FRAME_WIDTH / UVC_FRAME_HEIGHT;
+    } else {
+        area.height = width * UVC_FRAME_HEIGHT / UVC_FRAME_WIDTH;
+    }
+    area.left = (width - area.width) / 2;
+    area.top = (height - area.height) / 2;
+    return area;
+}
+
+/* YUYV shares one U and V between two pixels */
+static void putPair(uint8_t *pixel, Color left, Color right)
+{
+    const Color mean = {
+        .red = (left.red + right.red) / 2,
+        .green = (left.green + right.green) / 2,
+        .blue = (left.blue + right.blue) / 2,
+    };
+    pixel[0] = lumaOf(left);
+    pixel[1] = blueDifferenceOf(mean);
+    pixel[2] = lumaOf(right);
+    pixel[3] = redDifferenceOf(mean);
+}
+
+static void fillFaceFrame(const RgbaImage *face, Area face_area, const RgbaImage *background)
+{
+    const Area canvas = {.width = face->width, .height = face->height};
+    const Area frame = {.width = UVC_FRAME_WIDTH, .height = UVC_FRAME_HEIGHT};
+    const Area crop = background == NULL ? frame : coverArea(background->width, background->height);
+    Color left = DEFAULT_BACKGROUND;
     int y = 0;
-    while (y < FACE_ART_SIZE) {
+    while (y < UVC_FRAME_HEIGHT) {
         int x = 0;
-        while (x < FACE_ART_SIZE) {
-            if (bitAt(FACE_ART_MASK, ART_STRIDE, x, y)) {
-                putPixel(frame, ART_LEFT + x, y, bitAt(FACE_ART, ART_STRIDE, x, y) ? LUMA_INK : LUMA_PAPER);
+        while (x < UVC_FRAME_WIDTH) {
+            Color color = background == NULL ? DEFAULT_BACKGROUND : averageArea(background, crop, frame, x, y);
+            if (inside(face_area, x, y)) {
+                const Color over = averageArea(face, canvas, face_area, x, y);
+                color.red = mix(color.red, over.red, over.alpha);
+                color.green = mix(color.green, over.green, over.alpha);
+                color.blue = mix(color.blue, over.blue, over.alpha);
+            }
+            if (x % 2 == 0) {
+                left = color;
+            } else {
+                putPair(scene.face_frame + (y * UVC_FRAME_WIDTH + x - 1) * 2, left, color);
             }
             x++;
         }
@@ -157,11 +261,99 @@ static void fillFaceFrame(uint8_t *frame)
     }
 }
 
+/* Bounding box of the pixels at least MOUTH_OPAQUE_ALPHA */
+static bool findOpaqueBox(const RgbaImage *image, Area *box)
+{
+    int left = image->width;
+    int top = image->height;
+    int right = -1;
+    int bottom = -1;
+    int y = 0;
+    while (y < image->height) {
+        int x = 0;
+        while (x < image->width) {
+            if (image->pixels[(y * image->width + x) * 4 + 3] >= MOUTH_OPAQUE_ALPHA) {
+                left = x < left ? x : left;
+                right = x > right ? x : right;
+                top = y < top ? y : top;
+                bottom = y > bottom ? y : bottom;
+            }
+            x++;
+        }
+        y++;
+    }
+    box->left = left;
+    box->top = top;
+    box->width = right - left + 1;
+    box->height = bottom - top + 1;
+    return right >= 0;
+}
+
+/* The mouth as Y, U, V and alpha per pixel, cut to the frame pixels its box lands on */
+static void fillMouth(const RgbaImage *mouth, Area face_area, Area box)
+{
+    const Area canvas = {.width = mouth->width, .height = mouth->height};
+    const int left = face_area.left + box.left * face_area.width / canvas.width;
+    const int top = face_area.top + box.top * face_area.height / canvas.height;
+    const int right = face_area.left + ((box.left + box.width) * face_area.width + canvas.width - 1) / canvas.width;
+    const int bottom = face_area.top + ((box.top + box.height) * face_area.height + canvas.height - 1) / canvas.height;
+    const Area area = {left, top, right - left, bottom - top};
+    int y = 0;
+    while (y < area.height) {
+        int x = 0;
+        while (x < area.width) {
+            const Color color = averageArea(mouth, canvas, face_area, area.left + x, area.top + y);
+            uint8_t *const pixel = scene.mouth + (y * area.width + x) * 4;
+            pixel[0] = lumaOf(color);
+            pixel[1] = blueDifferenceOf(color);
+            pixel[2] = redDifferenceOf(color);
+            pixel[3] = color.alpha;
+            x++;
+        }
+        y++;
+    }
+    scene.mouth_area = area;
+}
+
+bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *background)
+{
+    Area box;
+    if (mouth->width != face->width || mouth->height != face->height || !findOpaqueBox(mouth, &box)) {
+        return false;
+    }
+    const Area face_area = fitArea(face->width, face->height);
+    fillFaceFrame(face, face_area, background);
+    fillMouth(mouth, face_area, box);
+    scene.ascii_face_ready = false;
+    return true;
+}
+
+/* Pixel for (x, y) of the mouth stretched to size. Squashing keeps the most opaque of the merged rows,
+   so the outline merges into a line instead of breaking into dots */
+static const uint8_t *mouthPixelAt(int x, int y, MouthSize size)
+{
+    const int width = scene.mouth_area.width;
+    const int height = scene.mouth_area.height;
+    const int source_x = x * width / size.width;
+    int source_y = y * height / size.height;
+    const int source_end = (y + 1) * height / size.height;
+    const uint8_t *most_opaque = scene.mouth + (source_y * width + source_x) * 4;
+    source_y++;
+    while (source_y < source_end) {
+        const uint8_t *const pixel = scene.mouth + (source_y * width + source_x) * 4;
+        if (pixel[3] > most_opaque[3]) {
+            most_opaque = pixel;
+        }
+        source_y++;
+    }
+    return most_opaque;
+}
+
 MouthSize CalcMouthSize(uint8_t openness, MouthShape shape)
 {
-    const int open_height = FACE_ART_MOUTH_HEIGHT * MOUTH_SCALES[shape].height_percent / 100;
+    const int open_height = scene.mouth_area.height * MOUTH_SCALES[shape].height_percent / 100;
     const MouthSize size = {
-        .width = FACE_ART_MOUTH_WIDTH * MOUTH_SCALES[shape].width_percent / 100,
+        .width = scene.mouth_area.width * MOUTH_SCALES[shape].width_percent / 100,
         .height = MOUTH_CLOSED_HEIGHT + ((open_height - MOUTH_CLOSED_HEIGHT) * openness + 127) / 255,
     };
     return size;
@@ -190,19 +382,13 @@ static int clamp(int value, int low, int high)
 
 static int mouthTop(MouthSize size)
 {
-    return MOUTH_CENTER_Y - size.height / 2;
+    return scene.mouth_area.top + scene.mouth_area.height / 2 - size.height / 2;
 }
 
 void FillMouthFrame(uint8_t *frame, MouthSize size)
 {
-    static uint8_t face_frame[UVC_FRAME_BYTES];
-    static bool face_frame_ready = false;
-    if (!face_frame_ready) {
-        fillFaceFrame(face_frame);
-        face_frame_ready = true;
-    }
-    memcpy(frame, face_frame, UVC_FRAME_BYTES);
-    const int left = MOUTH_CENTER_X - size.width / 2;
+    memcpy(frame, scene.face_frame, UVC_FRAME_BYTES);
+    const int left = scene.mouth_area.left + scene.mouth_area.width / 2 - size.width / 2;
     const int top = mouthTop(size);
     const int right = clamp(left + size.width, 0, UVC_FRAME_WIDTH);
     const int bottom = clamp(top + size.height, 0, UVC_FRAME_HEIGHT);
@@ -210,8 +396,12 @@ void FillMouthFrame(uint8_t *frame, MouthSize size)
     while (y < bottom) {
         int x = clamp(left, 0, UVC_FRAME_WIDTH);
         while (x < right) {
-            if (mouthInkAt(x - left, y - top, size)) {
-                putPixel(frame, x, y, LUMA_INK);
+            const uint8_t *const mouth = mouthPixelAt(x - left, y - top, size);
+            if (mouth[3] > 0) {
+                uint8_t *const pixel = frame + (y * UVC_FRAME_WIDTH + x) * 2;
+                pixel[0] = mix(pixel[0], mouth[0], mouth[3]);
+                /* Even pixels carry U, odd ones V */
+                pixel[1] = mix(pixel[1], mouth[1 + x % 2], mouth[3]);
             }
             x++;
         }
@@ -282,12 +472,11 @@ void FillAsciiMouthFrame(uint8_t *frame, MouthSize size)
 {
     static uint8_t composite[UVC_FRAME_BYTES];
     static uint8_t ascii_face[UVC_FRAME_BYTES];
-    static bool ascii_face_ready = false;
-    if (!ascii_face_ready) {
+    if (!scene.ascii_face_ready) {
         const MouthSize no_mouth = {0, 0};
         FillMouthFrame(composite, no_mouth);
         RenderAscii(ascii_face, composite);
-        ascii_face_ready = true;
+        scene.ascii_face_ready = true;
     }
     FillMouthFrame(composite, size);
     memcpy(frame, ascii_face, UVC_FRAME_BYTES);

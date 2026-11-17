@@ -2,6 +2,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
+#include <limits.h>
+#include <stb_image.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,9 +47,65 @@ static bool readStreamingInterface(void)
     return read;
 }
 
+static bool loadImage(const char *path, RgbaImage *image)
+{
+    int channels;
+    image->pixels = stbi_load(path, &image->width, &image->height, &channels, 4);
+    if (image->pixels == NULL) {
+        fprintf(stderr, "%s: %s\n", path, stbi_failure_reason());
+        return false;
+    }
+    return true;
+}
+
+/* $variable, or name next to the executable: usb-uvc-ncm.sh starts us from wherever ssh landed */
+static void imagePath(char *path, const char *variable, const char *name)
+{
+    const char *const given = getenv(variable);
+    if (given != NULL) {
+        snprintf(path, PATH_MAX, "%s", given);
+        return;
+    }
+    char executable[PATH_MAX];
+    const ssize_t length = readlink("/proc/self/exe", executable, sizeof executable - 1);
+    if (length < 0) {
+        snprintf(path, PATH_MAX, "%s", name);
+        return;
+    }
+    executable[length] = '\0';
+    snprintf(path, PATH_MAX, "%s/%s", dirname(executable), name);
+}
+
+static bool loadScene(void)
+{
+    char face_path[PATH_MAX];
+    char mouth_path[PATH_MAX];
+    imagePath(face_path, "VCAMERA_FACE", "face.png");
+    imagePath(mouth_path, "VCAMERA_MOUTH", "mouth.png");
+    const char *const background_path = getenv("VCAMERA_BACKGROUND");
+    RgbaImage face;
+    RgbaImage mouth;
+    RgbaImage background = {0};
+    if (!loadImage(face_path, &face) || !loadImage(mouth_path, &mouth)) {
+        return false;
+    }
+    if (background_path != NULL && !loadImage(background_path, &background)) {
+        return false;
+    }
+    const bool built = BuildScene(&face, &mouth, background_path != NULL ? &background : NULL);
+    if (!built) {
+        fprintf(stderr, "%s (%dx%d) and %s (%dx%d) must be the same size, and the mouth must not be transparent\n",
+                face_path, face.width, face.height, mouth_path, mouth.width, mouth.height);
+    }
+    stbi_image_free(face.pixels);
+    stbi_image_free(mouth.pixels);
+    stbi_image_free(background.pixels);
+    return built;
+}
+
 static bool openCamera(void)
 {
-    if (!readStreamingInterface()) {
+    if (!loadScene() || !readStreamingInterface()) {
         return false;
     }
     camera.ascii = getenv("VCAMERA_ASCII") != NULL;
