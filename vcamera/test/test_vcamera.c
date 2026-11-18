@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "adc_sample.h"
 #include "config.h"
@@ -9,6 +10,8 @@
 #include "lipsync.h"
 #include "uvc_control.h"
 
+/* A glide settles well within a second at 30fps */
+#define SWAY_TEST_FRAMES 60
 #define OPENNESS(level) CalcMouthOpenness((level), -45.0f, -12.0f)
 
 static void testOpennessSilenceIsZeroFullScaleIsMax(void)
@@ -530,6 +533,89 @@ static void testAsciiFollowsANewScene(void)
     assert(memcmp(ascii, frame, UVC_FRAME_BYTES) == 0);
 }
 
+/* The face and its mouth move together; the background shows where the face was */
+static void testMovedFaceCarriesItsMouth(void)
+{
+    static uint8_t moved_frame[UVC_FRAME_BYTES];
+    drawTestCanvases();
+    fillTestFrames();
+    const FaceOffset offset = {4, 2};
+    MoveFace(offset);
+    FillMouthFrame(moved_frame, CalcMouthSize(255, MOUTH_A));
+    const FaceOffset home = {0, 0};
+    MoveFace(home);
+    const int left = FACE_LEFT * CANVAS_SCALE;
+    const int top = FACE_TOP * CANVAS_SCALE;
+    const int size = FACE_SIZE * CANVAS_SCALE;
+    int y = top;
+    while (y < top + size) {
+        const int row = (y * UVC_FRAME_WIDTH + left) * 2;
+        const int moved_row = ((y + offset.y) * UVC_FRAME_WIDTH + left + offset.x) * 2;
+        assert(memcmp(moved_frame + moved_row, open_frame + row, size * 2) == 0);
+        y++;
+    }
+    assert(pairIs(moved_frame, left, top, STEELBLUE_YUYV));
+    assert(pairIs(moved_frame, left + offset.x, top + offset.y, WHITE_YUYV));
+}
+
+static void testAsciiFollowsAMovedFace(void)
+{
+    static uint8_t frame[UVC_FRAME_BYTES];
+    static uint8_t ascii[UVC_FRAME_BYTES];
+    drawTestCanvases();
+    assert(BuildScene(&face, &mouth, NULL, 100));
+    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
+    const FaceOffset offset = {-8, 8};
+    MoveFace(offset);
+    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
+    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
+    const FaceOffset home = {0, 0};
+    MoveFace(home);
+    RenderAscii(ascii, closed_frame);
+    assert(memcmp(ascii, frame, UVC_FRAME_BYTES) == 0);
+}
+
+static void testSwayGlidesToItsSpot(void)
+{
+    FaceSway sway = {0};
+    /* 6 % 7 = 6 and (6 >> 8) % 7 = 0: the spot (3, -3) */
+    FaceOffset offset = StepFaceSway(&sway, 3, 6);
+    assert(abs(offset.x) <= 1 && abs(offset.y) <= 1);
+    int frame = 1;
+    while (frame < SWAY_TEST_FRAMES) {
+        offset = StepFaceSway(&sway, 3, 6);
+        frame++;
+    }
+    assert(offset.x == 3 && offset.y == -3);
+}
+
+static void testSwayStaysWithinAmplitude(void)
+{
+    FaceSway sway = {0};
+    uint32_t random = 1;
+    bool moved = false;
+    int frame = 0;
+    while (frame < 3000) {
+        random = random * 1103515245u + 12345u;
+        const FaceOffset offset = StepFaceSway(&sway, 2, random >> 1);
+        assert(abs(offset.x) <= 2 && abs(offset.y) <= 2);
+        moved = moved || offset.x != 0 || offset.y != 0;
+        frame++;
+    }
+    assert(moved);
+}
+
+static void testZeroSwayKeepsFaceStill(void)
+{
+    FaceSway sway = {0};
+    int frame = 0;
+    while (frame < 300) {
+        const FaceOffset offset = StepFaceSway(&sway, 0, (uint32_t)frame * 2654435761u);
+        assert(offset.x == 0 && offset.y == 0);
+        frame++;
+    }
+}
+
 static void testAdcAtBiasIsSilence(void)
 {
     AdcBias bias;
@@ -827,6 +913,17 @@ static void testConfigDefaults(void)
     assert(config.mouth_scales[MOUTH_I].width_percent == 140 && config.mouth_scales[MOUTH_I].height_percent == 55);
 }
 
+static void testConfigSetsSway(void)
+{
+    Config config;
+    SetDefaultConfig(&config, ".");
+    assert(config.sway_pixels == DEFAULT_SWAY_PIXELS);
+    assert(ReadConfigLine(&config, "sway=0", "."));
+    assert(config.sway_pixels == 0);
+    assert(!ReadConfigLine(&config, "sway=-1", "."));
+    assert(config.sway_pixels == 0);
+}
+
 static void testConfigLineSetsNumber(void)
 {
     Config config;
@@ -975,9 +1072,15 @@ int main(void)
     testAsciiGlyphsKeepCellColor();
     testAsciiMouthOpensAndBackgroundStays();
     testAsciiFollowsANewScene();
+    testMovedFaceCarriesItsMouth();
+    testAsciiFollowsAMovedFace();
+    testSwayGlidesToItsSpot();
+    testSwayStaysWithinAmplitude();
+    testZeroSwayKeepsFaceStill();
     testEasedMouthMovesPartWayToTarget();
     testEasedMouthReachesTarget();
     testConfigDefaults();
+    testConfigSetsSway();
     testConfigLineSetsNumber();
     testConfigSkipsCommentsAndBlankLines();
     testConfigRejectsUnknownKeyAndBadValue();

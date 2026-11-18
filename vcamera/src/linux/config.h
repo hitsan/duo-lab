@@ -13,6 +13,7 @@ typedef struct {
     char background[CONFIG_PATH_SIZE];  /* empty: a solid color */
     int face_scale_percent;
     int ease_percent;
+    int sway_pixels;  /* how far the face drifts each way; 0: still */
     bool ascii;
     MouthScale mouth_scales[MOUTH_SHAPE_COUNT];
 } Config;

@@ -41,6 +41,23 @@ typedef struct {
 #define DEFAULT_EASE_PERCENT 50
 extern const MouthScale DEFAULT_MOUTH_SCALES[MOUTH_SHAPE_COUNT];
 
+/* Where the face is drawn, in frame pixels from its centered place */
+typedef struct {
+    int x;
+    int y;
+} FaceOffset;
+
+/* The face drifts to a random spot within the amplitude, rests there 1-3 s, then picks another */
+typedef struct {
+    int x16;  /* position in 1/16 pixels, so the glide stays smooth */
+    int y16;
+    int target_x;
+    int target_y;
+    int frames_left;
+} FaceSway;
+
+#define DEFAULT_SWAY_PIXELS 3
+
 /* 4 bytes per pixel, straight alpha */
 typedef struct {
     int width;
@@ -61,6 +78,11 @@ void SetMouthMotion(int ease_percent, const MouthScale scales[MOUTH_SHAPE_COUNT]
 MouthSize CalcMouthSize(uint8_t openness, MouthShape shape);
 /* One frame's step toward target, so openness and shape changes blend over a few frames */
 MouthSize EaseMouthSize(MouthSize current, MouthSize target);
+/* One 30fps frame of the drift, up to amplitude pixels each way (0: still).
+   random is used only when a new spot is picked */
+FaceOffset StepFaceSway(FaceSway *sway, int amplitude, uint32_t random);
+/* Draws the face and its mouth at offset from the next frame on; the background stays */
+void MoveFace(FaceOffset offset);
 /* YUYV face with the mouth drawn at size */
 void FillMouthFrame(uint8_t *frame, MouthSize size);
 /* frame redrawn as colored ASCII glyphs on black, one glyph per 8x8 cell, denser where brighter */

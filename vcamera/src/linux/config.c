@@ -6,6 +6,7 @@
 
 #define DEFAULT_FACE_SCALE_PERCENT 85
 #define MAX_MOUTH_SCALE_PERCENT 300
+#define MAX_SWAY_PIXELS 20
 #define LINE_SIZE 512
 
 /* A path too long to fit becomes empty, so it fails to load instead of naming another file */
@@ -25,6 +26,7 @@ void SetDefaultConfig(Config *config, const char *directory)
     config->background[0] = '\0';
     config->face_scale_percent = DEFAULT_FACE_SCALE_PERCENT;
     config->ease_percent = DEFAULT_EASE_PERCENT;
+    config->sway_pixels = DEFAULT_SWAY_PIXELS;
     config->ascii = false;
     memcpy(config->mouth_scales, DEFAULT_MOUTH_SCALES, sizeof config->mouth_scales);
 }
@@ -102,6 +104,9 @@ bool ReadConfigLine(Config *config, const char *line, const char *directory)
     }
     if (strcmp(key, "ease_percent") == 0) {
         return parseNumber(value, 1, 100, &config->ease_percent);
+    }
+    if (strcmp(key, "sway") == 0) {
+        return parseNumber(value, 0, MAX_SWAY_PIXELS, &config->sway_pixels);
     }
     if (strcmp(key, "ascii") == 0) {
         int ascii;

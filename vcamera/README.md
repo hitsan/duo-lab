@@ -52,6 +52,7 @@ make install
 | `background` | 背景の画像。PNGかJPEG | steelblueの単色 |
 | `face_scale` | 絵の大きさ。1〜100 | 85 |
 | `ease_percent` | 口の動きのなめらかさ。小さいほどゆっくり動く。1〜100 | 50 |
+| `sway` | 顔がランダムに揺れる幅。上下左右それぞれ何pxまで動くか。0で止まる。0〜20 | 3 |
 | `ascii` | 1でASCIIアートにする | 0 |
 | `mouth_a` `mouth_i` `mouth_u` | あ、い・え、う・お の口を開ききったときの幅x高さ。元の口に対する百分率 | `100x100` `140x55` `70x90` |
 

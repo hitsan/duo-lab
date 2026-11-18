@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/g_uvc.h>
@@ -29,6 +30,8 @@ typedef struct {
     bool streaming;
     void *buffers[BUFFER_COUNT];
     MouthSize mouth;
+    FaceSway sway;
+    int sway_pixels;
     bool ascii;
 } Camera;
 
@@ -101,6 +104,8 @@ static bool openCamera(void)
     loadConfig(&config);
     SetMouthMotion(config.ease_percent, config.mouth_scales);
     camera.ascii = config.ascii;
+    camera.sway_pixels = config.sway_pixels;
+    srand((unsigned int)time(NULL));
     /* Exiting would leave the UVC requests unanswered and take NCM (ssh) down with them */
     if (!loadScene(&config)) {
         fputs("showing the plain background instead\n", stderr);
@@ -273,6 +278,7 @@ void ShowMouth(uint8_t openness, MouthShape shape)
         exit(1);
     }
     camera.mouth = EaseMouthSize(camera.mouth, CalcMouthSize(openness, shape));
+    MoveFace(StepFaceSway(&camera.sway, camera.sway_pixels, (uint32_t)rand()));
     handleEvents();
     if (camera.streaming) {
         refillBuffers();

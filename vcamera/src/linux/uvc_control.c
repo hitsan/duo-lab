@@ -17,6 +17,11 @@
 #define MOUTH_OPAQUE_ALPHA 16
 /* Closed, the outline squashed to this many rows reads as a line */
 #define MOUTH_CLOSED_HEIGHT 3
+/* The face glides 8% of the way to its spot per frame (about 1 s), then rests 30-89 frames */
+#define SWAY_EASE_PERCENT 8
+#define SWAY_REST_FRAMES 30
+#define SWAY_EXTRA_REST_FRAMES 60
+#define SUBPIXELS 16
 
 #define ASCII_CELL_SIZE 8
 #define ASCII_DARK 16
@@ -68,8 +73,15 @@ typedef struct {
 static const Color DEFAULT_BACKGROUND = {70, 130, 180, 255};  /* steelblue */
 
 static struct {
+    /* The background with the face at face_offset */
     uint8_t face_frame[UVC_FRAME_BYTES];
-    /* Y, U, V and alpha per pixel of mouth_area */
+    /* RGB per frame pixel, kept so the face can move over it */
+    uint8_t background[UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT * 3];
+    /* Straight RGBA per pixel of face_area, already scaled */
+    uint8_t face[UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT * 4];
+    Area face_area;
+    FaceOffset face_offset;
+    /* Y, U, V and alpha per pixel of mouth_area, at face_offset 0 */
     uint8_t mouth[UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT * 4];
     Area mouth_area;
     bool ascii_face_ready;
@@ -236,19 +248,65 @@ static void putPair(uint8_t *pixel, Color left, Color right)
     pixel[3] = redDifferenceOf(mean);
 }
 
-static void fillFaceFrame(const RgbaImage *face, Area face_area, const RgbaImage *background)
+static void fillBackground(const RgbaImage *background)
 {
-    const Area canvas = {.width = face->width, .height = face->height};
     const Area frame = {.width = UVC_FRAME_WIDTH, .height = UVC_FRAME_HEIGHT};
     const Area crop = background == NULL ? frame : coverArea(background->width, background->height);
+    int y = 0;
+    while (y < UVC_FRAME_HEIGHT) {
+        int x = 0;
+        while (x < UVC_FRAME_WIDTH) {
+            const Color color = background == NULL ? DEFAULT_BACKGROUND : averageArea(background, crop, frame, x, y);
+            uint8_t *const pixel = scene.background + (y * UVC_FRAME_WIDTH + x) * 3;
+            pixel[0] = color.red;
+            pixel[1] = color.green;
+            pixel[2] = color.blue;
+            x++;
+        }
+        y++;
+    }
+}
+
+static void fillFace(const RgbaImage *face, Area face_area)
+{
+    const Area canvas = {.width = face->width, .height = face->height};
+    int y = 0;
+    while (y < face_area.height) {
+        int x = 0;
+        while (x < face_area.width) {
+            const Color color = averageArea(face, canvas, face_area, face_area.left + x, face_area.top + y);
+            uint8_t *const pixel = scene.face + (y * face_area.width + x) * 4;
+            pixel[0] = color.red;
+            pixel[1] = color.green;
+            pixel[2] = color.blue;
+            pixel[3] = color.alpha;
+            x++;
+        }
+        y++;
+    }
+    scene.face_area = face_area;
+}
+
+/* face_frame from the kept background and face, with the face at face_offset */
+static void composeFaceFrame(void)
+{
+    const Area face_area = {
+        .left = scene.face_area.left + scene.face_offset.x,
+        .top = scene.face_area.top + scene.face_offset.y,
+        .width = scene.face_area.width,
+        .height = scene.face_area.height,
+    };
     Color left = DEFAULT_BACKGROUND;
     int y = 0;
     while (y < UVC_FRAME_HEIGHT) {
         int x = 0;
         while (x < UVC_FRAME_WIDTH) {
-            Color color = background == NULL ? DEFAULT_BACKGROUND : averageArea(background, crop, frame, x, y);
+            const uint8_t *const under = scene.background + (y * UVC_FRAME_WIDTH + x) * 3;
+            Color color = {under[0], under[1], under[2], 255};
             if (inside(face_area, x, y)) {
-                const Color over = averageArea(face, canvas, face_area, x, y);
+                const uint8_t *const pixel =
+                    scene.face + ((y - face_area.top) * face_area.width + x - face_area.left) * 4;
+                const Color over = {pixel[0], pixel[1], pixel[2], pixel[3]};
                 color.red = mix(color.red, over.red, over.alpha);
                 color.green = mix(color.green, over.green, over.alpha);
                 color.blue = mix(color.blue, over.blue, over.alpha);
@@ -325,20 +383,54 @@ bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *
         return false;
     }
     const Area face_area = fitArea(face->width, face->height, scale_percent);
-    fillFaceFrame(face, face_area, background);
+    fillBackground(background);
+    fillFace(face, face_area);
     fillMouth(mouth, face_area, box);
+    composeFaceFrame();
     scene.ascii_face_ready = false;
     return true;
 }
 
 void BuildPlainScene(void)
 {
-    int offset = 0;
-    while (offset < UVC_FRAME_BYTES) {
-        putPair(scene.face_frame + offset, DEFAULT_BACKGROUND, DEFAULT_BACKGROUND);
-        offset += 4;
-    }
+    fillBackground(NULL);
+    scene.face_area = (Area){0};
     scene.mouth_area = (Area){0};
+    composeFaceFrame();
+    scene.ascii_face_ready = false;
+}
+
+/* Rounds half away from zero */
+static int fromSubpixels(int value)
+{
+    return (value + (value < 0 ? -SUBPIXELS / 2 : SUBPIXELS / 2)) / SUBPIXELS;
+}
+
+FaceOffset StepFaceSway(FaceSway *sway, int amplitude, uint32_t random)
+{
+    if (sway->frames_left <= 0) {
+        const uint32_t span = 2 * (uint32_t)amplitude + 1;
+        sway->target_x = (int)(random % span) - amplitude;
+        sway->target_y = (int)((random >> 8) % span) - amplitude;
+        sway->frames_left = SWAY_REST_FRAMES + (int)((random >> 16) % SWAY_EXTRA_REST_FRAMES);
+    }
+    sway->frames_left--;
+    const int step_x = (sway->target_x * SUBPIXELS - sway->x16) * SWAY_EASE_PERCENT;
+    const int step_y = (sway->target_y * SUBPIXELS - sway->y16) * SWAY_EASE_PERCENT;
+    /* Rounded away from zero so the glide reaches the spot instead of stalling */
+    sway->x16 += (step_x > 0 ? step_x + 99 : step_x - 99) / 100;
+    sway->y16 += (step_y > 0 ? step_y + 99 : step_y - 99) / 100;
+    const FaceOffset offset = {fromSubpixels(sway->x16), fromSubpixels(sway->y16)};
+    return offset;
+}
+
+void MoveFace(FaceOffset offset)
+{
+    if (offset.x == scene.face_offset.x && offset.y == scene.face_offset.y) {
+        return;
+    }
+    scene.face_offset = offset;
+    composeFaceFrame();
     scene.ascii_face_ready = false;
 }
 
@@ -403,13 +495,13 @@ static int clamp(int value, int low, int high)
 
 static int mouthTop(MouthSize size)
 {
-    return scene.mouth_area.top + scene.mouth_area.height / 2 - size.height / 2;
+    return scene.mouth_area.top + scene.face_offset.y + scene.mouth_area.height / 2 - size.height / 2;
 }
 
 void FillMouthFrame(uint8_t *frame, MouthSize size)
 {
     memcpy(frame, scene.face_frame, UVC_FRAME_BYTES);
-    const int left = scene.mouth_area.left + scene.mouth_area.width / 2 - size.width / 2;
+    const int left = scene.mouth_area.left + scene.face_offset.x + scene.mouth_area.width / 2 - size.width / 2;
     const int top = mouthTop(size);
     const int right = clamp(left + size.width, 0, UVC_FRAME_WIDTH);
     const int bottom = clamp(top + size.height, 0, UVC_FRAME_HEIGHT);
