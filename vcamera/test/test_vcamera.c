@@ -449,87 +449,6 @@ static void testEasedMouthReachesTarget(void)
     assert(size.width == target.width && size.height == target.height);
 }
 
-static void fillUniform(uint8_t *frame, uint8_t luma, uint8_t chroma)
-{
-    int offset = 0;
-    while (offset < UVC_FRAME_BYTES) {
-        frame[offset] = luma;
-        frame[offset + 1] = chroma;
-        offset += 2;
-    }
-}
-
-static int countLit(const uint8_t *frame)
-{
-    int count = 0;
-    int offset = 0;
-    while (offset < UVC_FRAME_BYTES) {
-        count += frame[offset] > 64;
-        offset += 2;
-    }
-    return count;
-}
-
-static int litOfUniform(uint8_t luma)
-{
-    static uint8_t frame[UVC_FRAME_BYTES];
-    static uint8_t ascii[UVC_FRAME_BYTES];
-    fillUniform(frame, luma, 128);
-    RenderAscii(ascii, frame);
-    return countLit(ascii);
-}
-
-static void testAsciiDarkFrameIsBlank(void)
-{
-    assert(litOfUniform(16) == 0);
-}
-
-static void testAsciiBrighterCellsUseDenserGlyphs(void)
-{
-    assert(litOfUniform(80) > 0);
-    assert(litOfUniform(80) < litOfUniform(160));
-    assert(litOfUniform(160) < litOfUniform(235));
-}
-
-static void testAsciiGlyphsKeepCellColor(void)
-{
-    static uint8_t frame[UVC_FRAME_BYTES];
-    static uint8_t ascii[UVC_FRAME_BYTES];
-    fillUniform(frame, 200, 60);
-    RenderAscii(ascii, frame);
-    assert(ascii[1] == 60 && ascii[UVC_FRAME_BYTES - 1] == 60);
-}
-
-static void testAsciiMouthOpensAndBackgroundStays(void)
-{
-    static uint8_t closed[UVC_FRAME_BYTES];
-    static uint8_t open[UVC_FRAME_BYTES];
-    static uint8_t ascii[UVC_FRAME_BYTES];
-    drawTestCanvases();
-    assert(BuildScene(&face, &mouth, NULL, 100));
-    FillAsciiMouthFrame(closed, CalcMouthSize(0, MOUTH_A));
-    FillAsciiMouthFrame(open, CalcMouthSize(255, MOUTH_A));
-    assert(memcmp(closed, open, UVC_FRAME_BYTES) != 0);
-    FillMouthFrame(open_frame, CalcMouthSize(255, MOUTH_A));
-    RenderAscii(ascii, open_frame);
-    assert(memcmp(ascii, open, UVC_FRAME_BYTES) == 0);
-}
-
-static void testAsciiFollowsANewScene(void)
-{
-    static uint8_t frame[UVC_FRAME_BYTES];
-    static uint8_t ascii[UVC_FRAME_BYTES];
-    drawTestCanvases();
-    assert(BuildScene(&face, &mouth, NULL, 100));
-    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
-    paint(&face, FACE_LEFT, FACE_TOP, FACE_SIZE, FACE_SIZE, RED);
-    assert(BuildScene(&face, &mouth, NULL, 100));
-    FillAsciiMouthFrame(frame, CalcMouthSize(0, MOUTH_A));
-    FillMouthFrame(closed_frame, CalcMouthSize(0, MOUTH_A));
-    RenderAscii(ascii, closed_frame);
-    assert(memcmp(ascii, frame, UVC_FRAME_BYTES) == 0);
-}
-
 static void testAdcAtBiasIsSilence(void)
 {
     AdcBias bias;
@@ -823,7 +742,6 @@ static void testConfigDefaults(void)
     assert(config.background[0] == '\0');
     assert(config.face_scale_percent == 85);
     assert(config.ease_percent == DEFAULT_EASE_PERCENT);
-    assert(!config.ascii);
     assert(config.mouth_scales[MOUTH_I].width_percent == 140 && config.mouth_scales[MOUTH_I].height_percent == 55);
 }
 
@@ -835,8 +753,6 @@ static void testConfigLineSetsNumber(void)
     assert(config.ease_percent == 30);
     assert(ReadConfigLine(&config, " face_scale = 70 ", "/root"));
     assert(config.face_scale_percent == 70);
-    assert(ReadConfigLine(&config, "ascii=1", "/root"));
-    assert(config.ascii);
 }
 
 static void testConfigSkipsCommentsAndBlankLines(void)
@@ -970,11 +886,6 @@ int main(void)
     testMouthKeepsItsColor();
     testMouthGrowsWithOpenness();
     testHalfTransparentMouthBlendsOverFace();
-    testAsciiDarkFrameIsBlank();
-    testAsciiBrighterCellsUseDenserGlyphs();
-    testAsciiGlyphsKeepCellColor();
-    testAsciiMouthOpensAndBackgroundStays();
-    testAsciiFollowsANewScene();
     testEasedMouthMovesPartWayToTarget();
     testEasedMouthReachesTarget();
     testConfigDefaults();

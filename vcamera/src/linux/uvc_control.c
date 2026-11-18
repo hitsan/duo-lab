@@ -18,25 +18,6 @@
 /* Closed, the outline squashed to this many rows reads as a line */
 #define MOUTH_CLOSED_HEIGHT 3
 
-#define ASCII_CELL_SIZE 8
-#define ASCII_DARK 16
-
-/* " .:-=+*%#@", 7x7 in an 8x8 cell so glyphs stay apart, MSB left.
-   Lit pixel counts rise strictly so brighter cells look denser */
-static const uint8_t ASCII_GLYPHS[][ASCII_CELL_SIZE] = {
-    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30, 0x00},
-    {0x00, 0x30, 0x30, 0x00, 0x30, 0x30, 0x00, 0x00},
-    {0x00, 0x00, 0x00, 0x7C, 0x7C, 0x00, 0x00, 0x00},
-    {0x00, 0x00, 0xFE, 0x00, 0x00, 0xFE, 0x00, 0x00},
-    {0x30, 0x30, 0xFE, 0xFE, 0x30, 0x30, 0x00, 0x00},
-    {0x92, 0x54, 0x38, 0xFE, 0x38, 0x54, 0x92, 0x00},
-    {0xE6, 0xEC, 0x1C, 0x38, 0x70, 0x6E, 0xCE, 0x00},
-    {0x6C, 0x6C, 0xFE, 0x6C, 0xFE, 0x6C, 0x6C, 0x00},
-    {0x7C, 0xFE, 0xDE, 0xDE, 0xDE, 0xC0, 0x7E, 0x00},
-};
-#define ASCII_GLYPH_COUNT ((int)(sizeof ASCII_GLYPHS / sizeof ASCII_GLYPHS[0]))
-
 /* I spread and low, U narrow */
 const MouthScale DEFAULT_MOUTH_SCALES[MOUTH_SHAPE_COUNT] = {
     [MOUTH_A] = {100, 100},
@@ -72,7 +53,6 @@ static struct {
     /* Y, U, V and alpha per pixel of mouth_area */
     uint8_t mouth[UVC_FRAME_WIDTH * UVC_FRAME_HEIGHT * 4];
     Area mouth_area;
-    bool ascii_face_ready;
 } scene;
 
 static void putLe16(uint8_t *bytes, uint16_t value)
@@ -327,7 +307,6 @@ bool BuildScene(const RgbaImage *face, const RgbaImage *mouth, const RgbaImage *
     const Area face_area = fitArea(face->width, face->height, scale_percent);
     fillFaceFrame(face, face_area, background);
     fillMouth(mouth, face_area, box);
-    scene.ascii_face_ready = false;
     return true;
 }
 
@@ -339,7 +318,6 @@ void BuildPlainScene(void)
         offset += 4;
     }
     scene.mouth_area = (Area){0};
-    scene.ascii_face_ready = false;
 }
 
 /* Pixel for (x, y) of the mouth stretched to size. Squashing keeps the most opaque of the merged rows,
@@ -428,79 +406,4 @@ void FillMouthFrame(uint8_t *frame, MouthSize size)
         }
         y++;
     }
-}
-
-static void renderAsciiCell(uint8_t *ascii, const uint8_t *frame, int left, int top)
-{
-    int luma = 0;
-    int u = 0;
-    int v = 0;
-    int row = 0;
-    while (row < ASCII_CELL_SIZE) {
-        const uint8_t *pixel = frame + ((top + row) * UVC_FRAME_WIDTH + left) * 2;
-        int column = 0;
-        while (column < ASCII_CELL_SIZE) {
-            luma += pixel[0] + pixel[2];
-            u += pixel[1];
-            v += pixel[3];
-            pixel += 4;
-            column += 2;
-        }
-        row++;
-    }
-    luma /= ASCII_CELL_SIZE * ASCII_CELL_SIZE;
-    u /= ASCII_CELL_SIZE * ASCII_CELL_SIZE / 2;
-    v /= ASCII_CELL_SIZE * ASCII_CELL_SIZE / 2;
-    const uint8_t *const glyph = ASCII_GLYPHS[luma * ASCII_GLYPH_COUNT / 256];
-    /* Even sparse glyphs of dim cells stay visible on black */
-    const uint8_t lit = 128 + luma / 2;
-    row = 0;
-    while (row < ASCII_CELL_SIZE) {
-        uint8_t *out = ascii + ((top + row) * UVC_FRAME_WIDTH + left) * 2;
-        int column = 0;
-        while (column < ASCII_CELL_SIZE) {
-            out[0] = glyph[row] & (0x80 >> column) ? lit : ASCII_DARK;
-            out[1] = u;
-            out[2] = glyph[row] & (0x40 >> column) ? lit : ASCII_DARK;
-            out[3] = v;
-            out += 4;
-            column += 2;
-        }
-        row++;
-    }
-}
-
-/* Every cell row that touches [top, bottom) */
-static void renderAsciiRows(uint8_t *ascii, const uint8_t *frame, int top, int bottom)
-{
-    int cell_top = top - top % ASCII_CELL_SIZE;
-    while (cell_top < bottom) {
-        int left = 0;
-        while (left < UVC_FRAME_WIDTH) {
-            renderAsciiCell(ascii, frame, left, cell_top);
-            left += ASCII_CELL_SIZE;
-        }
-        cell_top += ASCII_CELL_SIZE;
-    }
-}
-
-void RenderAscii(uint8_t *ascii, const uint8_t *frame)
-{
-    renderAsciiRows(ascii, frame, 0, UVC_FRAME_HEIGHT);
-}
-
-void FillAsciiMouthFrame(uint8_t *frame, MouthSize size)
-{
-    static uint8_t composite[UVC_FRAME_BYTES];
-    static uint8_t ascii_face[UVC_FRAME_BYTES];
-    if (!scene.ascii_face_ready) {
-        const MouthSize no_mouth = {0, 0};
-        FillMouthFrame(composite, no_mouth);
-        RenderAscii(ascii_face, composite);
-        scene.ascii_face_ready = true;
-    }
-    FillMouthFrame(composite, size);
-    memcpy(frame, ascii_face, UVC_FRAME_BYTES);
-    const int top = mouthTop(size);
-    renderAsciiRows(frame, composite, clamp(top, 0, UVC_FRAME_HEIGHT), clamp(top + size.height, 0, UVC_FRAME_HEIGHT));
 }

@@ -29,7 +29,6 @@ typedef struct {
     bool streaming;
     void *buffers[BUFFER_COUNT];
     MouthSize mouth;
-    bool ascii;
 } Camera;
 
 static Camera camera = {.video = -1};
@@ -100,7 +99,6 @@ static bool openCamera(void)
     Config config;
     loadConfig(&config);
     SetMouthMotion(config.ease_percent, config.mouth_scales);
-    camera.ascii = config.ascii;
     /* Exiting would leave the UVC requests unanswered and take NCM (ssh) down with them */
     if (!loadScene(&config)) {
         fputs("showing the plain background instead\n", stderr);
@@ -148,11 +146,7 @@ static void answerSetup(const struct usb_ctrlrequest *control_request)
 
 static bool queueFrame(unsigned int index)
 {
-    if (camera.ascii) {
-        FillAsciiMouthFrame(camera.buffers[index], camera.mouth);
-    } else {
-        FillMouthFrame(camera.buffers[index], camera.mouth);
-    }
+    FillMouthFrame(camera.buffers[index], camera.mouth);
     struct v4l2_buffer buffer = {
         .type = V4L2_BUF_TYPE_VIDEO_OUTPUT,
         .memory = V4L2_MEMORY_MMAP,
