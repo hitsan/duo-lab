@@ -25,7 +25,6 @@ void SetDefaultConfig(Config *config, const char *directory)
     config->background[0] = '\0';
     config->face_scale_percent = DEFAULT_FACE_SCALE_PERCENT;
     config->ease_percent = DEFAULT_EASE_PERCENT;
-    config->ascii = false;
     memcpy(config->mouth_scales, DEFAULT_MOUTH_SCALES, sizeof config->mouth_scales);
 }
 
@@ -102,14 +101,6 @@ bool ReadConfigLine(Config *config, const char *line, const char *directory)
     }
     if (strcmp(key, "ease_percent") == 0) {
         return parseNumber(value, 1, 100, &config->ease_percent);
-    }
-    if (strcmp(key, "ascii") == 0) {
-        int ascii;
-        if (!parseNumber(value, 0, 1, &ascii)) {
-            return false;
-        }
-        config->ascii = ascii == 1;
-        return true;
     }
     if (strcmp(key, "mouth_a") == 0) {
         return parseMouthScale(value, &config->mouth_scales[MOUTH_A]);
